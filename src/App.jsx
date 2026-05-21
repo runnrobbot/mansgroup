@@ -42,6 +42,12 @@ const AdminBlacklist = lazy(() => import('./pages/admin/AdminBlacklist'))
 
 // Founder
 const FounderDashboard = lazy(() => import('./pages/founder/FounderDashboard'))
+const FounderRevenue = lazy(() => import('./pages/founder/FounderRevenue'))
+const FounderLoans = lazy(() => import('./pages/founder/FounderLoans'))
+const FounderGadai = lazy(() => import('./pages/founder/FounderGadai'))
+const FounderUsers = lazy(() => import('./pages/founder/FounderUsers'))
+const FounderNPL = lazy(() => import('./pages/founder/FounderNPL'))
+const FounderGrowth = lazy(() => import('./pages/founder/FounderGrowth'))
 
 function PageLoader() {
   return (
@@ -97,8 +103,16 @@ function AppRoutes() {
       <Route path="/admin/blacklist" element={<RequireAuth><RequireRole minRole="admin"><AdminBlacklist /></RequireRole></RequireAuth>} />
 
       {/* Founder */}
+      {/* Founder - individual pages */}
       <Route path="/founder" element={<RequireAuth><RequireRole role="founder"><FounderDashboard /></RequireRole></RequireAuth>} />
-      <Route path="/founder/*" element={<RequireAuth><RequireRole role="founder"><FounderDashboard /></RequireRole></RequireAuth>} />
+      <Route path="/founder/revenue" element={<RequireAuth><RequireRole role="founder"><FounderRevenue /></RequireRole></RequireAuth>} />
+      <Route path="/founder/loans" element={<RequireAuth><RequireRole role="founder"><FounderLoans /></RequireRole></RequireAuth>} />
+      <Route path="/founder/gadai" element={<RequireAuth><RequireRole role="founder"><FounderGadai /></RequireRole></RequireAuth>} />
+      <Route path="/founder/users" element={<RequireAuth><RequireRole role="founder"><FounderUsers /></RequireRole></RequireAuth>} />
+      <Route path="/founder/npl" element={<RequireAuth><RequireRole role="founder"><FounderNPL /></RequireRole></RequireAuth>} />
+      <Route path="/founder/growth" element={<RequireAuth><RequireRole role="founder"><FounderGrowth /></RequireRole></RequireAuth>} />
+      {/* Founder can also access admin & staff pages */}
+      <Route path="/admin/*" element={<RequireAuth><RequireRole minRole="admin"><AdminDashboard /></RequireRole></RequireAuth>} />
 
       {/* 404 */}
       <Route path="*" element={

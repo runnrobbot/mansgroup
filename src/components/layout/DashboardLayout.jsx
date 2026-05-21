@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   LayoutDashboard, CreditCard, Package, Receipt, FileText, Bell,
-  User, ChevronLeft, ChevronRight, LogOut, Zap, ClipboardList,
+  User, ChevronLeft, ChevronRight, LogOut, ClipboardList,
   Truck, Warehouse, AlertTriangle, CheckCircle, Users,
   ArrowLeftRight, Wallet, Ban, Settings, BarChart3, TrendingUp,
   LineChart, AlertOctagon, Menu
@@ -50,12 +50,12 @@ export function DashboardLayout({ children, role }) {
         'flex items-center gap-2.5 h-16 px-4 border-b border-slate-100 flex-shrink-0',
         collapsed && !mobile && 'justify-center px-0'
       )}>
-        <div className={`w-8 h-8 rounded-[10px] bg-gradient-to-br ${brandColor} flex items-center justify-center flex-shrink-0`}>
-          <Zap size={15} className="text-white" fill="white" />
+        <div className={`w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0`}>
+          <img src="/logo-utama.png" alt="MansGroup" className="h-8 w-auto" />
         </div>
         {(!collapsed || mobile) && (
           <div className="flex flex-col leading-none overflow-hidden">
-            <span className="text-sm font-800 text-slate-900 tracking-tight">MansGroup</span>
+            <img src="/logo-samping.png" alt="MansGroup" className="h-5 w-auto" />
             <span className="text-[9px] text-slate-400 font-500 tracking-widest uppercase">
               {role === 'user' ? 'Portal User' : role === 'staff' ? 'Staff Panel' : role === 'admin' ? 'Admin Panel' : 'Founder Panel'}
             </span>
@@ -188,10 +188,8 @@ export function DashboardLayout({ children, role }) {
             <Menu size={18} />
           </button>
           <div className="flex items-center gap-2">
-            <div className={`w-6 h-6 rounded-lg bg-gradient-to-br ${brandColor} flex items-center justify-center`}>
-              <Zap size={12} className="text-white" fill="white" />
-            </div>
-            <span className="text-sm font-700 text-slate-900">MansGroup</span>
+            <img src="/logo-utama.png" alt="MansGroup" className="h-6 w-auto" />
+            <img src="/logo-samping.png" alt="MansGroup" className="h-5 w-auto" />
           </div>
           <Link to={`/${role}/notifications`} className="relative w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500">
             <Bell size={16} />

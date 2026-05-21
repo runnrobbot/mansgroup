@@ -3,7 +3,7 @@ import { Link, useLocation } from 'react-router-dom'
 import { motion, AnimatePresence } from 'framer-motion'
 import {
   Menu, X, ChevronDown, Bell, LogOut, User, LayoutDashboard,
-  Zap, CheckCheck, BellOff
+  CheckCheck, BellOff
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { useNotifications } from '../../contexts/NotificationContext'
@@ -72,13 +72,8 @@ export function Navbar() {
 
             {/* Logo */}
             <Link to="/" className="flex items-center gap-2.5 flex-shrink-0">
-              <div className="w-8 h-8 rounded-[10px] bg-gradient-to-br from-emerald-700 to-emerald-500 flex items-center justify-center">
-                <Zap size={16} className="text-white" fill="white" />
-              </div>
-              <div className="flex flex-col leading-none">
-                <span className="text-sm font-800 text-slate-900 tracking-tight">MansGroup</span>
-                <span className="text-[10px] text-slate-400 font-500 tracking-wider">THE NEXT GEN FINANCIAL ECO SYSTEM</span>
-              </div>
+              <img src="/logo-utama.png" alt="MansGroup" className="h-8 w-auto" />
+              <img src="/logo-samping.png" alt="MansGroup" className="h-7 w-auto hidden sm:block" />
             </Link>
 
             {/* Desktop Nav */}

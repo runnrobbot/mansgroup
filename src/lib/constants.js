@@ -131,7 +131,6 @@ export const NAV_ITEMS = {
     { path: '/dashboard/gadai', label: 'Gadai Saya', icon: 'Package' },
     { path: '/dashboard/payments', label: 'Pembayaran', icon: 'Receipt' },
     { path: '/dashboard/documents', label: 'Dokumen', icon: 'FileText' },
-    { path: '/dashboard/notifications', label: 'Notifikasi', icon: 'Bell' },
     { path: '/dashboard/profile', label: 'Profil', icon: 'User' },
   ],
   staff: [
