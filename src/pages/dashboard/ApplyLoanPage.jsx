@@ -2,10 +2,10 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { motion, AnimatePresence } from 'framer-motion'
-import { CheckCircle, ChevronRight, User, FileText, CreditCard, Shield } from 'lucide-react'
+import { CheckCircle, ChevronRight, User, FileText, CreditCard, Shield, AlertCircle } from 'lucide-react'
 import { DashboardLayout } from '../../components/layout/DashboardLayout'
 import { Card } from '../../components/ui/Card'
-import { Input, Select, Textarea, CurrencyInput } from '../../components/ui/Input'
+import { Input, CustomSelect, Textarea, CurrencyInput } from '../../components/ui/Input'
 import { Button } from '../../components/ui/Button'
 import { FileUpload } from '../../components/ui/FileUpload'
 import { useAuth } from '../../contexts/AuthContext'
@@ -14,6 +14,20 @@ import { supabase } from '../../lib/supabase'
 import { calculateLoanSimulation, formatIDR, generateRefNumber } from '../../lib/utils'
 import { BANKS, MANSLATER_CONFIG } from '../../lib/constants'
 import toast from 'react-hot-toast'
+
+const BANK_OPTIONS = BANKS.map(b => ({
+  value: b.code,
+  label: b.name,
+  sublabel: b.premium ? 'Fee 2.5%' : 'Fee 5%',
+  icon: b.premium ? '⭐' : '🏦',
+}))
+
+const TENOR_OPTIONS = [
+  { value: 1, label: '1 Bulan', sublabel: 'Jatuh tempo 1 bulan' },
+  { value: 3, label: '3 Bulan', sublabel: 'Cicilan 3× per bulan' },
+  { value: 6, label: '6 Bulan', sublabel: 'Cicilan 6× per bulan' },
+  { value: 9, label: '9 Bulan', sublabel: 'Cicilan 9× per bulan' },
+]
 
 const STEPS = [
   { id: 1, label: 'Data Diri', icon: User },
@@ -28,27 +42,42 @@ export default function ApplyLoanPage() {
   const [step, setStep] = useState(1)
   const [files, setFiles] = useState({})
   const [loading, setLoading] = useState(false)
-  const [userType, setUserType] = useState('worker')
+  const [userType, setUserType] = useState(profile?.occupation === 'mahasiswa' ? 'student' : 'worker')
+  const [bankCode, setBankCode] = useState('BCA')
+  const [tenor, setTenor] = useState(3)
+
   const { register, handleSubmit, watch, setValue, formState: { errors }, trigger, getValues } = useForm({
     defaultValues: {
-      full_name: profile?.full_name || '',
-      phone: profile?.phone || '',
-      bank_code: 'BCA',
-      tenor: 3,
-      amount: 5000000,
+      full_name:          profile?.full_name || '',
+      phone:              profile?.phone || '',
+      nik:                profile?.nik || '',
+      birth_place:        profile?.birth_place || '',
+      birth_date:         profile?.birth_date || '',
+      address:            profile?.address || '',
+      occupation:         profile?.occupation || '',
+      income:             profile?.income ? String(profile.income) : '',
+      bank_code:          'BCA',
+      tenor:              3,
+      amount:             5000000,
     }
   })
 
+  // Profile pre-filled indicator
+  const profilePrefilled = !!(profile?.full_name && profile?.nik && profile?.phone)
+
   const amount = watch('amount', 5000000)
-  const tenor = watch('tenor', 3)
-  const bankCode = watch('bank_code', 'BCA')
   const sim = calculateLoanSimulation(Number(amount), Number(tenor), bankCode, profile?.reward_eligible)
 
   const nextStep = async () => {
     const fields = {
-      1: ['full_name', 'nik', 'birth_place', 'birth_date', 'address', 'occupation', 'income', 'phone', 'emergency_name', 'emergency_phone', 'emergency_relation'],
+      1: ['full_name', 'nik', 'birth_date', 'phone', 'emergency_name', 'emergency_phone', 'emergency_relation'],
       2: [],
-      3: ['amount', 'tenor', 'bank_code', 'account_number', 'account_name'],
+      3: ['amount', 'account_number', 'account_name'],
+    }
+    // Additional check for CustomSelect fields in step 3
+    if (step === 3) {
+      if (!bankCode) { toast.error('Pilih bank tujuan'); return }
+      if (!tenor) { toast.error('Pilih tenor pinjaman'); return }
     }
     const valid = await trigger(fields[step] || [])
     if (valid) setStep(s => s + 1)
@@ -79,14 +108,14 @@ export default function ApplyLoanPage() {
     const { error } = await loanService.create(profile.id, {
       ref_number: refNumber,
       amount: Number(data.amount),
-      tenor: Number(data.tenor),
+      tenor: Number(tenor),
       interest_rate: sim.interestRate / 100,
       total_interest: sim.totalInterest,
       platform_fee: sim.platformFee,
       net_disbursement: sim.netDisbursement,
       total_repayment: sim.totalRepayment,
       monthly_installment: sim.monthlyInstallment,
-      bank_code: data.bank_code,
+      bank_code: bankCode,
       account_number: data.account_number,
       account_name: data.account_name,
       user_type: userType,
@@ -156,7 +185,13 @@ export default function ApplyLoanPage() {
           >
             {step === 1 && (
               <Card>
-                <h2 className="text-base font-700 text-slate-900 mb-6">Data Diri</h2>
+                <h2 className="text-base font-700 text-slate-900 mb-4">Data Diri</h2>
+                {profilePrefilled && (
+                  <div className="mb-5 p-3.5 bg-emerald-50 rounded-xl border border-emerald-200 flex items-center gap-3">
+                    <CheckCircle size={16} className="text-emerald-600 flex-shrink-0" />
+                    <p className="text-xs text-emerald-700 font-600">Data diisi otomatis dari profil kamu. Periksa dan sesuaikan jika perlu.</p>
+                  </div>
+                )}
                 <div className="space-y-5">
                   {/* User type */}
                   <div>
@@ -290,21 +325,25 @@ export default function ApplyLoanPage() {
                       min={MANSLATER_CONFIG.MIN_AMOUNT}
                       max={MANSLATER_CONFIG.MAX_AMOUNT}
                     />
-                    <div>
-                      <label className="label-field">Tenor <span className="text-red-400">*</span></label>
-                      <div className="grid grid-cols-4 gap-2">
-                        {MANSLATER_CONFIG.TENORS.map(t => (
-                          <label key={t} className={`py-2.5 rounded-xl text-sm font-600 border text-center cursor-pointer transition-all ${Number(tenor) === t ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-slate-200 text-slate-600 hover:border-emerald-200'}`}>
-                            <input type="radio" value={t} className="sr-only" {...register('tenor')} />
-                            {t} Bln
-                          </label>
-                        ))}
-                      </div>
-                    </div>
+                    <CustomSelect
+                      label="Tenor"
+                      required
+                      placeholder="Pilih tenor"
+                      options={TENOR_OPTIONS}
+                      value={tenor}
+                      onChange={v => setTenor(Number(v))}
+                      searchable={false}
+                    />
                     <div className="grid sm:grid-cols-2 gap-4">
-                      <Select label="Bank Tujuan" required {...register('bank_code')}>
-                        {BANKS.map(b => <option key={b.code} value={b.code}>{b.name}</option>)}
-                      </Select>
+                      <CustomSelect
+                        label="Bank Tujuan"
+                        required
+                        placeholder="Pilih bank"
+                        options={BANK_OPTIONS}
+                        value={bankCode}
+                        onChange={v => setBankCode(v)}
+                        searchable
+                      />
                       <Input label="Nomor Rekening" placeholder="1234567890" required {...register('account_number', { required: 'Wajib diisi' })} error={errors.account_number?.message} />
                     </div>
                     <Input label="Nama Pemilik Rekening" placeholder="Sesuai buku tabungan" required {...register('account_name', { required: 'Wajib diisi' })} error={errors.account_name?.message} />
