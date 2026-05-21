@@ -43,7 +43,7 @@ export default function ForgotPasswordPage() {
             <form onSubmit={handleSubmit} className='space-y-4'>
               <div>
                 <label className='label-field'>Email</label>
-                <input type='email' className='input-field' value={email} onChange={e => setEmail(e.target.value)} placeholder='email@domain.com' required />
+                <input type='email' className='input-field' value={email} onChange={e => setEmail(e.target.value)} placeholder='Masukan email' required />
               </div>
               <button type='submit' disabled={loading} className='btn-primary w-full justify-center py-2.5 rounded-xl text-sm'>
                 {loading ? <div className='w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin' /> : 'Kirim Link Reset'}

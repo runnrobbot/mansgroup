@@ -80,7 +80,7 @@ export default function LoginPage() {
               <label className="label-field">Email</label>
               <input
                 type="email"
-                placeholder="email@domain.com"
+                placeholder="Masukan email"
                 className={`input-field ${errors.email ? 'border-red-400' : ''}`}
                 {...register('email', { required: 'Email wajib diisi', pattern: { value: /^\S+@\S+\.\S+$/, message: 'Format email tidak valid' } })}
               />

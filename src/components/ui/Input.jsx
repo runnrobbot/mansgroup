@@ -16,9 +16,9 @@ export const Input = forwardRef(function Input(
       )}
       <div className="relative flex items-center">
         {prefix && (
-          <div className="absolute left-0 top-0 bottom-0 flex items-center px-3.5 text-slate-400 pointer-events-none text-sm font-500 select-none z-10">
+          <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-sm font-500 text-slate-400 pointer-events-none select-none leading-none z-10">
             {prefix}
-          </div>
+          </span>
         )}
         <input
           id={id}
@@ -30,12 +30,13 @@ export const Input = forwardRef(function Input(
             error && 'border-red-400 focus:border-red-400 focus:shadow-[0_0_0_3px_rgba(248,113,113,0.12)]',
             className
           )}
+          style={prefix ? { paddingLeft: '2.5rem' } : undefined}
           {...props}
         />
         {suffix && (
-          <div className="absolute right-0 top-0 bottom-0 flex items-center px-3.5 text-slate-400 pointer-events-none text-sm select-none z-10">
+          <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-sm text-slate-400 pointer-events-none select-none leading-none z-10">
             {suffix}
-          </div>
+          </span>
         )}
       </div>
       {error && <p className="text-xs text-red-500 font-500">{error}</p>}
@@ -45,9 +46,11 @@ export const Input = forwardRef(function Input(
 })
 
 // ─── Currency Input ────────────────────────────────────────────────────────────
-// Auto-formats IDR with dots: 5000000 → "5.000.000"
-// value / onChange work with raw numbers (not strings).
-// Compatible with react-hook-form via setValue: onChange={v => setValue('field', v)}
+// Renders as a flex container that LOOKS like an input (border, rounded, focus ring).
+// "Rp" is a true flex child — no absolute positioning, no padding override conflicts.
+// Auto-formats IDR: typing 5000000 shows "5.000.000"
+// onChange receives raw number (not string).
+// Works with react-hook-form: onChange={v => setValue('field', v)}
 
 export function CurrencyInput({
   label,
@@ -67,34 +70,30 @@ export function CurrencyInput({
   const id = useId()
 
   const fmt = (n) => {
-    const num = typeof n === 'string' ? parseInt(n.replace(/\./g, ''), 10) : Number(n)
-    if (!n && n !== 0) return ''
+    if (n === '' || n === null || n === undefined) return ''
+    const num = typeof n === 'string' ? parseInt(n.replace(/\./g, '').replace(/,/g, ''), 10) : Number(n)
     if (isNaN(num)) return ''
     return new Intl.NumberFormat('id-ID').format(num)
   }
 
   const [display, setDisplay] = useState(() => fmt(value))
+  const [focused, setFocused] = useState(false)
 
-  // Sync display when value changes externally (e.g. form reset, slider)
   useEffect(() => {
-    setDisplay(fmt(value))
-  }, [value])
+    if (!focused) setDisplay(fmt(value))
+  }, [value, focused])
 
   const handleChange = (e) => {
-    // Strip dots (thousand separators) and non-digits
     const raw = e.target.value.replace(/\./g, '').replace(/[^0-9]/g, '')
     const num = raw ? parseInt(raw, 10) : 0
-
     let clamped = num
-    if (min !== undefined && num < min) clamped = min
     if (max !== undefined && num > max) clamped = max
-
     setDisplay(raw ? fmt(clamped) : '')
     onChange?.(clamped)
   }
 
   const handleBlur = () => {
-    // On blur: if empty set to min or 0
+    setFocused(false)
     if (!display) {
       const fallback = min ?? 0
       setDisplay(fmt(fallback))
@@ -110,13 +109,17 @@ export function CurrencyInput({
           {required && <span className="text-red-400 ml-0.5">*</span>}
         </label>
       )}
-      <div className="relative flex items-center">
-        {/* Rp prefix with right border separator */}
-        <div className="absolute left-0 top-0 bottom-0 flex items-center px-3 pointer-events-none z-10">
-          <span className="text-sm font-600 text-slate-500 pr-2.5 border-r border-slate-200 h-5 flex items-center">
-            Rp
-          </span>
-        </div>
+      {/* Outer div acts as the styled "input" — flex row with Rp + actual input */}
+      <div
+        className={cn(
+          'currency-field',
+          focused && 'currency-field-focus',
+          error && 'currency-field-error',
+          disabled && 'opacity-60 cursor-not-allowed'
+        )}
+      >
+        {/* Rp prefix — natural flex child, visually separated */}
+        <span className="currency-field-prefix">Rp</span>
         <input
           id={id}
           name={name}
@@ -124,14 +127,11 @@ export function CurrencyInput({
           inputMode="numeric"
           value={display}
           onChange={handleChange}
+          onFocus={() => setFocused(true)}
           onBlur={handleBlur}
           placeholder={placeholder}
           disabled={disabled}
-          className={cn(
-            'input-field pl-14',
-            error && 'border-red-400 focus:border-red-400 focus:shadow-[0_0_0_3px_rgba(248,113,113,0.12)]',
-            className
-          )}
+          className="currency-field-input"
         />
       </div>
       {error && <p className="text-xs text-red-500 font-500">{error}</p>}
@@ -155,10 +155,13 @@ export const Select = forwardRef(function Select(
       <select
         ref={ref}
         className={cn(
-          'input-field appearance-none bg-[url("data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%2394A3B8\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'%3E%3Cpolyline points=\'6 9 12 15 18 9\'%3E%3C/polyline%3E%3C/svg%3E")] bg-no-repeat bg-[right_12px_center] pr-9',
+          'input-field appearance-none bg-no-repeat bg-[right_12px_center] pr-9',
           error && 'border-red-400',
           className
         )}
+        style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2394A3B8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E")`
+        }}
         {...props}
       >
         {children}
@@ -184,11 +187,7 @@ export const Textarea = forwardRef(function Textarea(
       <textarea
         ref={ref}
         rows={rows}
-        className={cn(
-          'input-field resize-none',
-          error && 'border-red-400',
-          className
-        )}
+        className={cn('input-field resize-none', error && 'border-red-400', className)}
         {...props}
       />
       {error && <p className="text-xs text-red-500 font-500">{error}</p>}
