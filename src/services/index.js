@@ -111,7 +111,7 @@ export const loanService = {
   async getById(id) {
     const { data, error } = await supabase
       .from('loans')
-      .select('*, loan_schedules(*), profiles(*), documents(*)')
+      .select('*, loan_schedules(*), profiles!loans_user_id_fkey(full_name, email, phone)')
       .eq('id', id)
       .single()
     return { data, error }
@@ -139,7 +139,7 @@ export const loanService = {
   async listAll({ page = 1, limit = 20, status = '', search = '' } = {}) {
     let query = supabase
       .from('loans')
-      .select('*, profiles(full_name, email)', { count: 'exact' })
+      .select('*, profiles!loans_user_id_fkey(full_name, email)', { count: 'exact' })
       .range((page - 1) * limit, page * limit - 1)
       .order('created_at', { ascending: false })
 
@@ -210,7 +210,7 @@ export const gadaiService = {
   async listAll({ page = 1, limit = 20, status = '' } = {}) {
     let query = supabase
       .from('gadai_applications')
-      .select('*, profiles(full_name, email)', { count: 'exact' })
+      .select('*, profiles!gadai_applications_user_id_fkey(full_name, email)', { count: 'exact' })
       .range((page - 1) * limit, page * limit - 1)
       .order('created_at', { ascending: false })
 
@@ -326,15 +326,21 @@ export const documentService = {
   async upload(file, bucket, path) {
     const { data, error } = await supabase.storage
       .from(bucket)
-      .upload(path, file, { upsert: true, cacheControl: '3600' })
-    if (error) return { url: null, error }
+      .upload(path, file, { upsert: true, cacheControl: '3600', contentType: file.type })
+    if (error) {
+      console.error('[Storage Upload Error]', { bucket, path, message: error.message, statusCode: error.statusCode })
+      return { url: null, error }
+    }
 
     // Use signed URL for private buckets (documents bucket is private).
     // Expiry: 1 year (31536000s) — suitable for KYC documents.
     const { data: signedData, error: signError } = await supabase.storage
       .from(bucket)
       .createSignedUrl(path, 31536000)
-    if (signError) return { url: null, error: signError }
+    if (signError) {
+      console.error('[Signed URL Error]', signError)
+      return { url: null, error: signError }
+    }
 
     return { url: signedData.signedUrl, error: null }
   },

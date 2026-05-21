@@ -5,18 +5,41 @@ import { Card } from '../../components/ui/Card'
 import { StatusBadge } from '../../components/ui/Badge'
 import { loanService } from '../../services'
 import { formatIDR, formatDate, formatDateTime } from '../../lib/utils'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, AlertCircle } from 'lucide-react'
 
 export default function LoanDetailPage() {
   const { id } = useParams()
   const [loan, setLoan] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [fetchError, setFetchError] = useState(null)
+
   useEffect(() => {
-    loanService.getById(id).then(({ data }) => { setLoan(data); setLoading(false) })
+    loanService.getById(id).then(({ data, error }) => {
+      if (error) {
+        console.error('Loan fetch error:', error)
+        setFetchError(error.message)
+      } else {
+        setLoan(data)
+      }
+      setLoading(false)
+    })
   }, [id])
 
   if (loading) return <DashboardLayout role='user'><div className='text-center py-20 text-slate-400'>Memuat...</div></DashboardLayout>
-  if (!loan) return <DashboardLayout role='user'><div className='text-center py-20 text-slate-400'>Pinjaman tidak ditemukan</div></DashboardLayout>
+  if (fetchError || !loan) return (
+    <DashboardLayout role='user'>
+      <div className='max-w-md mx-auto py-20 text-center space-y-3'>
+        <div className='w-12 h-12 rounded-2xl bg-red-50 flex items-center justify-center mx-auto'>
+          <AlertCircle size={20} className='text-red-400' />
+        </div>
+        <p className='font-700 text-slate-900'>Data Pinjaman Tidak Ditemukan</p>
+        <p className='text-sm text-slate-400'>{fetchError || 'Pengajuan ini belum tersedia atau sedang dalam proses.'}</p>
+        <Link to='/dashboard/loans' className='inline-flex items-center gap-1.5 text-sm text-emerald-600 hover:text-emerald-700 font-600 mt-2'>
+          <ArrowLeft size={14} /> Kembali ke Daftar Pinjaman
+        </Link>
+      </div>
+    </DashboardLayout>
+  )
 
   return (
     <DashboardLayout role='user'>
