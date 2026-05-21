@@ -2,244 +2,189 @@ import { useEffect, useState } from 'react'
 import { DashboardLayout } from '../../components/layout/DashboardLayout'
 import { Card } from '../../components/ui/Card'
 import { Table, TableHead, Th, TableBody, Tr, Td, EmptyRow } from '../../components/ui/Table'
-import { Modal, ModalBody, ModalFooter } from '../../components/ui/Modal'
-import { Button } from '../../components/ui/Button'
-import { useConfirm } from '../../components/ui/ConfirmModal'
-import { paymentService } from '../../services'
-import { formatIDR, formatDate, formatDateTime } from '../../lib/utils'
-import { useAuth } from '../../contexts/AuthContext'
-import { CheckCircle, XCircle, Eye, ExternalLink, Wallet, Clock, Filter } from 'lucide-react'
+import { loanService, gadaiService } from '../../services'
+import { formatIDR, formatDate } from '../../lib/utils'
+import { CreditCard, Package, ArrowDownCircle, CheckCircle, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const STATUS_COLORS = {
-  pending: 'bg-slate-100 text-slate-600',
-  verification: 'bg-amber-50 text-amber-700',
-  confirmed: 'bg-emerald-50 text-emerald-700',
-  failed: 'bg-red-50 text-red-700',
-  refunded: 'bg-blue-50 text-blue-700',
+  pending:   'bg-slate-100 text-slate-600',
+  review:    'bg-blue-50 text-blue-700',
+  approved:  'bg-violet-50 text-violet-700',
+  disbursed: 'bg-emerald-50 text-emerald-700',
+  active:    'bg-emerald-50 text-emerald-700',
+  overdue:   'bg-red-50 text-red-700',
+  completed: 'bg-slate-100 text-slate-500',
+  rejected:  'bg-red-50 text-red-600',
+  forfeited: 'bg-orange-50 text-orange-700',
+}
+
+const STATUS_LABELS = {
+  pending: 'Pending', review: 'Review', approved: 'Disetujui',
+  disbursed: 'Dicairkan', active: 'Aktif', overdue: 'Overdue',
+  completed: 'Selesai', rejected: 'Ditolak', forfeited: 'Disita',
 }
 
 export default function AdminTransactions() {
-  const { profile: admin } = useAuth()
-  const confirm = useConfirm()
-  const [items, setItems] = useState([])
-  const [allItems, setAllItems] = useState([])
+  const [tab, setTab] = useState('loans')
+  const [loans, setLoans] = useState([])
+  const [gadais, setGadais] = useState([])
   const [loading, setLoading] = useState(true)
-  const [selected, setSelected] = useState(null)
-  const [verifyNotes, setVerifyNotes] = useState('')
-  const [actionLoading, setActionLoading] = useState(false)
-  const [filter, setFilter] = useState('verification')
-  const [counts, setCounts] = useState({ verification: 0, confirmed: 0, failed: 0 })
+  const [loanCount, setLoanCount] = useState(0)
+  const [gadaiCount, setGadaiCount] = useState(0)
+  const [page, setPage] = useState(1)
+  const [filter, setFilter] = useState('')
+
+  const LIMIT = 20
 
   const load = async () => {
     setLoading(true)
-    const { data } = await paymentService.listPending()
-    const pending = data || []
-
-    // Also load confirmed and failed
-    const { data: allData } = await paymentService.getByUserId ? { data: [] } : { data: [] }
-
-    setCounts({
-      verification: pending.length,
-      confirmed: 0,
-      failed: 0,
-    })
-
-    if (filter === 'verification') {
-      setItems(pending)
+    if (tab === 'loans') {
+      const res = await loanService.listAll({ page, limit: LIMIT, status: filter })
+      setLoans(res.data || [])
+      setLoanCount(res.count || 0)
     } else {
-      setItems([])
+      const res = await gadaiService.listAll({ page, limit: LIMIT, status: filter })
+      setGadais(res.data || [])
+      setGadaiCount(res.count || 0)
     }
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [filter])
+  useEffect(() => { load() }, [tab, page, filter])
 
-  const handleVerify = async (action) => {
-    if (!selected) return
-    const isConfirm = action === 'confirm'
-    const ok = await confirm({
-      title: isConfirm ? 'Konfirmasi Pembayaran?' : 'Tolak Pembayaran?',
-      message: isConfirm
-        ? `Pembayaran sebesar ${formatIDR(selected.amount)} dari ${selected.profiles?.full_name} akan dikonfirmasi. Cicilan akan ditandai lunas.`
-        : `Pembayaran ini akan ditolak. User perlu mengunggah ulang bukti transfer yang valid.`,
-      variant: isConfirm ? 'info' : 'danger',
-      confirmLabel: isConfirm ? 'Ya, Konfirmasi' : 'Ya, Tolak',
-    })
-    if (!ok) return
+  const loanStatuses = ['', 'pending', 'review', 'approved', 'disbursed', 'overdue', 'completed', 'rejected']
+  const gadaiStatuses = ['', 'pending', 'waiting_pickup', 'picked_up', 'received', 'active', 'overdue', 'completed', 'forfeited', 'rejected']
 
-    setActionLoading(true)
-    const status = isConfirm ? 'confirmed' : 'failed'
-    const { error } = await paymentService.verifyPayment(selected.id, status, admin?.id, verifyNotes)
-    setActionLoading(false)
+  const statuses = tab === 'loans' ? loanStatuses : gadaiStatuses
+  const items = tab === 'loans' ? loans : gadais
+  const total = tab === 'loans' ? loanCount : gadaiCount
 
-    if (!error) {
-      toast.success(isConfirm ? 'Pembayaran dikonfirmasi' : 'Pembayaran ditolak')
-      setSelected(null)
-      setVerifyNotes('')
-      load()
-    } else {
-      toast.error('Gagal memproses verifikasi')
-    }
-  }
-
-  const tabs = [
-    { value: 'verification', label: 'Menunggu Verifikasi', count: counts.verification },
-    { value: 'confirmed', label: 'Terkonfirmasi' },
-    { value: 'failed', label: 'Ditolak' },
-  ]
-
-  const stats = {
-    pending: counts.verification,
-    totalAmount: items.reduce((s, i) => s + (i.amount || 0), 0),
-  }
+  const totalDisbursed = loans.filter(l => l.status === 'disbursed').reduce((s, l) => s + (l.amount || 0), 0)
+  const totalActive = loans.filter(l => l.status === 'disbursed').length
 
   return (
     <DashboardLayout role="admin">
       <div className="space-y-6">
         <div>
-          <h1 className="text-xl font-800 text-slate-900">Verifikasi Pembayaran</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Konfirmasi bukti transfer dari user</p>
+          <h1 className="text-xl font-800 text-slate-900">Transaksi</h1>
+          <p className="text-sm text-slate-500 mt-0.5">Riwayat seluruh pinjaman dan gadai di platform</p>
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="card-premium p-4">
-            <p className="text-xs text-slate-400">Menunggu Verifikasi</p>
-            <p className="text-2xl font-800 text-amber-700 mt-1">{stats.pending}</p>
-          </div>
-          <div className="card-premium p-4">
-            <p className="text-xs text-slate-400">Total Nominal Pending</p>
-            <p className="text-xl font-800 text-slate-900 mt-1">{formatIDR(stats.totalAmount)}</p>
-          </div>
-          <div className="card-premium p-4">
-            <div className="flex items-center gap-2 mb-1">
-              <Wallet size={14} className="text-emerald-600" />
-              <p className="text-xs text-slate-400">Status</p>
+            <div className="flex items-center gap-2 mb-2">
+              <CreditCard size={14} className="text-emerald-600" />
+              <p className="text-xs text-slate-400">Total Pinjaman</p>
             </div>
-            <p className="text-sm font-700 text-emerald-700">Sistem Pembayaran Aktif</p>
+            <p className="text-2xl font-800 text-slate-900">{loanCount}</p>
+          </div>
+          <div className="card-premium p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <Package size={14} className="text-violet-600" />
+              <p className="text-xs text-slate-400">Total Gadai</p>
+            </div>
+            <p className="text-2xl font-800 text-slate-900">{gadaiCount}</p>
+          </div>
+          <div className="card-premium p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <ArrowDownCircle size={14} className="text-blue-600" />
+              <p className="text-xs text-slate-400">Pinjaman Aktif</p>
+            </div>
+            <p className="text-2xl font-800 text-blue-700">{totalActive}</p>
+          </div>
+          <div className="card-premium p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <CheckCircle size={14} className="text-emerald-600" />
+              <p className="text-xs text-slate-400">Total Disalurkan</p>
+            </div>
+            <p className="text-lg font-800 text-emerald-700">{formatIDR(totalDisbursed)}</p>
           </div>
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-1 bg-slate-100/80 p-1 rounded-xl w-fit">
-          {tabs.map(({ value, label, count }) => (
-            <button key={value} onClick={() => setFilter(value)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-600 transition-all ${
-                filter === value ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-              }`}>
-              {label}
-              {count > 0 && (
-                <span className="text-xs font-700 bg-amber-500 text-white rounded-full px-1.5 py-0.5 leading-none">{count}</span>
-              )}
-            </button>
-          ))}
+        {/* Tabs + Filter */}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex gap-1 bg-slate-100/80 p-1 rounded-xl">
+            {[
+              { value: 'loans', label: 'Pinjaman', icon: CreditCard },
+              { value: 'gadai', label: 'Gadai', icon: Package },
+            ].map(({ value, label, icon: Icon }) => (
+              <button key={value} onClick={() => { setTab(value); setPage(1); setFilter('') }}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-600 transition-all ${
+                  tab === value ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}>
+                <Icon size={13} />
+                {label}
+              </button>
+            ))}
+          </div>
+          <select className="input-field !w-auto !py-2 text-sm"
+            value={filter} onChange={e => { setFilter(e.target.value); setPage(1) }}>
+            <option value="">Semua Status</option>
+            {statuses.filter(s => s).map(s => (
+              <option key={s} value={s}>{STATUS_LABELS[s] || s}</option>
+            ))}
+          </select>
+          <span className="text-xs text-slate-400 ml-auto">{total} data</span>
         </div>
 
         <Card>
           <Table>
             <TableHead>
-              <Th>Ref Pinjaman</Th>
+              <Th>No. Ref</Th>
               <Th>Pemohon</Th>
-              <Th>Jumlah</Th>
-              <Th>Metode</Th>
-              <Th>Tanggal Upload</Th>
+              <Th>{tab === 'loans' ? 'Jumlah Pinjaman' : 'Nilai Gadai'}</Th>
+              {tab === 'loans' && <Th>Tenor</Th>}
               <Th>Status</Th>
-              <Th align="center">Aksi</Th>
+              <Th>Tanggal</Th>
+              {tab === 'loans' && <Th>Cair</Th>}
             </TableHead>
             <TableBody>
               {loading ? (
                 <tr><td colSpan={7} className="py-10 text-center text-sm text-slate-400">Memuat data...</td></tr>
               ) : items.length === 0 ? (
-                <EmptyRow colSpan={7} message={filter === 'verification' ? 'Tidak ada pembayaran menunggu verifikasi' : 'Tidak ada data'} />
+                <EmptyRow colSpan={7} message="Tidak ada transaksi" />
               ) : items.map(item => (
                 <Tr key={item.id}>
-                  <Td><span className="font-600 text-xs font-mono">{item.loans?.ref_number || item.gadai_applications?.ref_number || '-'}</span></Td>
+                  <Td><span className="font-700 text-xs font-mono text-emerald-700">{item.ref_number || '-'}</span></Td>
                   <Td>
                     <p className="font-600 text-sm text-slate-900">{item.profiles?.full_name || '-'}</p>
-                    <p className="text-xs text-slate-400">{item.user_id?.slice(0,8)}</p>
+                    <p className="text-xs text-slate-400">{item.profiles?.email || ''}</p>
                   </Td>
-                  <Td className="font-700 text-emerald-700">{formatIDR(item.amount)}</Td>
-                  <Td className="text-xs">{item.payment_method || 'Transfer'}</Td>
-                  <Td className="text-xs text-slate-500">{formatDate(item.created_at)}</Td>
+                  <Td className="font-700">{formatIDR(item.amount || item.loan_amount || 0)}</Td>
+                  {tab === 'loans' && <Td className="text-xs">{item.tenor} bulan</Td>}
                   <Td>
-                    <span className={`text-xs font-600 px-2 py-1 rounded-lg ${STATUS_COLORS[item.status] || STATUS_COLORS.pending}`}>
-                      {item.status}
+                    <span className={`text-xs font-600 px-2 py-1 rounded-lg ${STATUS_COLORS[item.status] || 'bg-slate-100 text-slate-600'}`}>
+                      {STATUS_LABELS[item.status] || item.status}
                     </span>
                   </Td>
-                  <Td align="center">
-                    <button onClick={() => { setSelected(item); setVerifyNotes('') }}
-                      className="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 mx-auto">
-                      <Eye size={14} />
-                    </button>
-                  </Td>
+                  <Td className="text-xs text-slate-500">{formatDate(item.created_at)}</Td>
+                  {tab === 'loans' && (
+                    <Td className="text-xs text-slate-500">{item.disbursed_at ? formatDate(item.disbursed_at) : '-'}</Td>
+                  )}
                 </Tr>
               ))}
             </TableBody>
           </Table>
         </Card>
 
-        {/* Verify Modal */}
-        <Modal isOpen={!!selected} onClose={() => setSelected(null)} title="Verifikasi Pembayaran" size="md">
-          {selected && (
-            <>
-              <ModalBody>
-                {/* Summary */}
-                <div className="bg-slate-50 rounded-xl p-4 mb-5">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-xs text-slate-400">Dari</p>
-                      <p className="font-700 text-slate-900">{selected.profiles?.full_name || '-'}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-slate-400">Nominal</p>
-                      <p className="text-xl font-800 text-emerald-700">{formatIDR(selected.amount)}</p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="space-y-3 mb-5">
-                  {[
-                    { label: 'Ref. Pinjaman', value: selected.loans?.ref_number || '-' },
-                    { label: 'Tanggal Upload', value: formatDateTime(selected.created_at) },
-                    { label: 'Metode Pembayaran', value: selected.payment_method || 'Transfer Bank' },
-                    { label: 'Nomor Referensi Transfer', value: selected.transfer_ref || '-' },
-                  ].map(({ label, value }) => (
-                    <div key={label} className="flex justify-between border-b border-slate-50 pb-2 last:border-0">
-                      <span className="text-sm text-slate-500">{label}</span>
-                      <span className="text-sm font-600 text-slate-900">{value}</span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Proof image */}
-                {selected.proof_url && (
-                  <div className="mb-5">
-                    <p className="text-xs text-slate-400 mb-2 font-600">Bukti Transfer</p>
-                    <a href={selected.proof_url} target="_blank" rel="noopener noreferrer"
-                      className="flex items-center gap-2 text-sm font-600 text-emerald-600 bg-emerald-50 hover:bg-emerald-100 px-4 py-2.5 rounded-xl transition-colors w-fit">
-                      <ExternalLink size={14} />
-                      Lihat Bukti Transfer
-                    </a>
-                  </div>
-                )}
-
-                <div>
-                  <label className="label-field">Catatan Verifikasi</label>
-                  <textarea value={verifyNotes} onChange={e => setVerifyNotes(e.target.value)}
-                    rows={2} className="input-field resize-none" placeholder="Catatan verifikasi (opsional)..." />
-                </div>
-              </ModalBody>
-              <ModalFooter>
-                <Button variant="ghost" onClick={() => setSelected(null)}>Tutup</Button>
-                <Button variant="danger" icon={XCircle} loading={actionLoading} onClick={() => handleVerify('reject')}>Tolak</Button>
-                <Button icon={CheckCircle} loading={actionLoading} onClick={() => handleVerify('confirm')}>Konfirmasi</Button>
-              </ModalFooter>
-            </>
-          )}
-        </Modal>
-
-        {confirm.modal}
+        {/* Pagination */}
+        {total > LIMIT && (
+          <div className="flex justify-center gap-2">
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+              className="px-4 py-2 rounded-lg text-sm font-600 bg-white border border-slate-200 disabled:opacity-40 hover:bg-slate-50">
+              ← Prev
+            </button>
+            <span className="px-4 py-2 text-sm text-slate-500">
+              Hal {page} / {Math.ceil(total / LIMIT)}
+            </span>
+            <button onClick={() => setPage(p => p + 1)} disabled={page >= Math.ceil(total / LIMIT)}
+              className="px-4 py-2 rounded-lg text-sm font-600 bg-white border border-slate-200 disabled:opacity-40 hover:bg-slate-50">
+              Next →
+            </button>
+          </div>
+        )}
       </div>
     </DashboardLayout>
   )

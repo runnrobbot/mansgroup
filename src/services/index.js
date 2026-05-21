@@ -146,10 +146,20 @@ export const loanService = {
     return { data, error }
   },
 
+  async updateFull(id, updates) {
+    const { data, error } = await supabase
+      .from('loans')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id)
+      .select()
+      .single()
+    return { data, error }
+  },
+
   async listAll({ page = 1, limit = 20, status = '', search = '' } = {}) {
     let query = supabase
       .from('loans')
-      .select('*, profiles!loans_user_id_fkey(full_name, email)', { count: 'exact' })
+      .select('id, ref_number, amount, approved_amount, tenor, status, bank_code, account_number, disbursed_at, approved_at, created_at, profiles!loans_user_id_fkey(full_name, email)', { count: 'exact' })
       .range((page - 1) * limit, page * limit - 1)
       .order('created_at', { ascending: false })
 
@@ -211,6 +221,16 @@ export const gadaiService = {
     const { data, error } = await supabase
       .from('gadai_applications')
       .update(updates)
+      .eq('id', id)
+      .select()
+      .single()
+    return { data, error }
+  },
+
+  async updateFull(id, updates) {
+    const { data, error } = await supabase
+      .from('gadai_applications')
+      .update({ ...updates, updated_at: new Date().toISOString() })
       .eq('id', id)
       .select()
       .single()
@@ -281,7 +301,17 @@ export const paymentService = {
   async create(paymentData) {
     const { data, error } = await supabase
       .from('payments')
-      .insert({ ...paymentData, status: 'pending', created_at: new Date().toISOString() })
+      .insert({ ...paymentData, created_at: new Date().toISOString() })
+      .select()
+      .single()
+    return { data, error }
+  },
+
+  async update(id, updates) {
+    const { data, error } = await supabase
+      .from('payments')
+      .update({ ...updates, updated_at: new Date().toISOString() })
+      .eq('id', id)
       .select()
       .single()
     return { data, error }
@@ -299,7 +329,7 @@ export const paymentService = {
   async getByUserId(userId) {
     const { data, error } = await supabase
       .from('payments')
-      .select('*, loans(ref_number), gadai_applications(ref_number)')
+      .select('*, loans(ref_number), gadai_applications(ref_number), profiles(full_name, email)')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
     return { data, error }
@@ -313,6 +343,7 @@ export const paymentService = {
         verified_by: staffId,
         verification_notes: notes,
         verified_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       })
       .eq('id', id)
       .select()
@@ -323,7 +354,7 @@ export const paymentService = {
   async listAll({ status = '', limit = 50 } = {}) {
     let query = supabase
       .from('payments')
-      .select('*, profiles(full_name), loans(ref_number), gadai_applications(ref_number)', { count: 'exact' })
+      .select('*, profiles(full_name, email), loans(ref_number), gadai_applications(ref_number)', { count: 'exact' })
       .order('created_at', { ascending: false })
       .limit(limit)
     if (status) query = query.eq('status', status)
@@ -333,7 +364,7 @@ export const paymentService = {
   async listPending() {
     const { data, error } = await supabase
       .from('payments')
-      .select('*, profiles(full_name), loans(ref_number)')
+      .select('*, profiles(full_name, email), loans(ref_number), gadai_applications(ref_number)')
       .eq('status', 'verification')
       .order('created_at', { ascending: true })
     return { data, error }
@@ -471,8 +502,8 @@ export const auditService = {
 export const analyticsService = {
   async getSummary() {
     const [loans, gadai, payments, users] = await Promise.all([
-      supabase.from('loans').select('amount, status, created_at'),
-      supabase.from('gadai_applications').select('loan_amount, status, created_at'),
+      supabase.from('loans').select('id, ref_number, amount, status, created_at, profiles(full_name)'),
+      supabase.from('gadai_applications').select('id, ref_number, loan_amount, status, created_at, profiles(full_name)'),
       supabase.from('payments').select('amount, status, created_at'),
       supabase.from('profiles').select('id, role, created_at'),
     ])

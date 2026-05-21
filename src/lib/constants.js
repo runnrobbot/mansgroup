@@ -138,16 +138,14 @@ export const NAV_ITEMS = {
     { path: '/staff/review-queue', label: 'Antrian Review', icon: 'ClipboardList' },
     { path: '/staff/gadai-pickup', label: 'Penjemputan Gadai', icon: 'Truck' },
     { path: '/staff/warehouse', label: 'Warehouse', icon: 'Warehouse' },
-    { path: '/staff/overdue', label: 'Overdue', icon: 'AlertTriangle' },
   ],
   admin: [
     { path: '/admin', label: 'Dashboard', icon: 'LayoutDashboard' },
     { path: '/admin/approvals', label: 'Final Approval', icon: 'CheckCircle' },
     { path: '/admin/users', label: 'Kelola User', icon: 'Users' },
     { path: '/admin/transactions', label: 'Transaksi', icon: 'ArrowLeftRight' },
-    { path: '/admin/payments', label: 'Pembayaran', icon: 'Wallet' },
+    { path: '/admin/payments', label: 'Verifikasi Bayar', icon: 'Wallet' },
     { path: '/admin/blacklist', label: 'Blacklist', icon: 'Ban' },
-    { path: '/admin/settings', label: 'Pengaturan', icon: 'Settings' },
   ],
   founder: [
     { path: '/founder', label: 'Analytics', icon: 'BarChart3' },

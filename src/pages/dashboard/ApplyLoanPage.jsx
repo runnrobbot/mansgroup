@@ -10,6 +10,7 @@ import { Button } from '../../components/ui/Button'
 import { FileUpload } from '../../components/ui/FileUpload'
 import { useAuth } from '../../contexts/AuthContext'
 import { loanService } from '../../services'
+import { supabase } from '../../lib/supabase'
 import { calculateLoanSimulation, formatIDR, generateRefNumber } from '../../lib/utils'
 import { BANKS, MANSLATER_CONFIG } from '../../lib/constants'
 import toast from 'react-hot-toast'
@@ -59,6 +60,22 @@ export default function ApplyLoanPage() {
 
     setLoading(true)
     const refNumber = generateRefNumber('ML')
+
+    // Save profile data (NIK, etc.) if not already set — one-time save
+    if (!profile.nik || !profile.full_name) {
+      await supabase.from('profiles').update({
+        full_name: data.full_name,
+        nik: data.nik,
+        birth_place: data.birth_place,
+        birth_date: data.birth_date,
+        address: data.address,
+        occupation: data.occupation,
+        income: Number(data.income),
+        phone: data.phone,
+        updated_at: new Date().toISOString(),
+      }).eq('id', profile.id)
+    }
+
     const { error } = await loanService.create(profile.id, {
       ref_number: refNumber,
       amount: Number(data.amount),

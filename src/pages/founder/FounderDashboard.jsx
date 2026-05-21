@@ -199,29 +199,36 @@ export default function FounderDashboard() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-100">
-                  {['Ref. Pinjaman', 'Jenis', 'Status', 'Jumlah', 'Tanggal'].map(h => (
+                  {['No. Ref', 'Pemohon', 'Jenis', 'Status', 'Jumlah', 'Tanggal'].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-700 text-slate-400 uppercase tracking-wider">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-50">
-                {data.loans.slice(0, 8).map(loan => (
-                  <tr key={loan.id || loan.amount} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="px-4 py-3.5 font-600 text-slate-900">{loan.ref_number || '-'}</td>
-                    <td className="px-4 py-3.5 text-slate-500">Pinjaman</td>
+                {[
+                  ...data.loans.slice(0, 5).map(l => ({ ...l, _type: 'Pinjaman', _amount: l.amount })),
+                  ...data.gadai.slice(0, 3).map(g => ({ ...g, _type: 'Gadai', _amount: g.loan_amount })),
+                ]
+                  .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+                  .slice(0, 8)
+                  .map((item, idx) => (
+                  <tr key={item.id || idx} className="hover:bg-slate-50/60 transition-colors">
+                    <td className="px-4 py-3.5 font-700 text-emerald-700 font-mono text-xs">{item.ref_number || '-'}</td>
+                    <td className="px-4 py-3.5 text-slate-700 font-600">{item.profiles?.full_name || '-'}</td>
+                    <td className="px-4 py-3.5 text-slate-500">{item._type}</td>
                     <td className="px-4 py-3.5">
                       <span className={`badge ${
-                        loan.status === 'disbursed' ? 'badge-success' :
-                        loan.status === 'overdue' ? 'badge-danger' :
-                        loan.status === 'pending' ? 'badge-warning' : 'badge-gray'
-                      }`}>{loan.status}</span>
+                        item.status === 'disbursed' || item.status === 'active' ? 'badge-success' :
+                        item.status === 'overdue' ? 'badge-danger' :
+                        item.status === 'pending' ? 'badge-warning' : 'badge-gray'
+                      }`}>{item.status}</span>
                     </td>
-                    <td className="px-4 py-3.5 font-600 text-slate-900">{formatIDR(loan.amount)}</td>
-                    <td className="px-4 py-3.5 text-slate-500 text-xs">{loan.created_at?.slice(0, 10)}</td>
+                    <td className="px-4 py-3.5 font-600 text-slate-900">{formatIDR(item._amount)}</td>
+                    <td className="px-4 py-3.5 text-slate-500 text-xs">{item.created_at?.slice(0, 10)}</td>
                   </tr>
                 ))}
-                {data.loans.length === 0 && (
-                  <tr><td colSpan={5} className="px-4 py-10 text-center text-slate-400 text-sm">Belum ada data pinjaman</td></tr>
+                {data.loans.length === 0 && data.gadai.length === 0 && (
+                  <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-400 text-sm">Belum ada data pengajuan</td></tr>
                 )}
               </tbody>
             </table>

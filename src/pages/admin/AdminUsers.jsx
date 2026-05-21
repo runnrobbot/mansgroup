@@ -234,8 +234,8 @@ export default function AdminUsers() {
                       <span className={`text-xs font-600 px-2 py-0.5 rounded-lg ${KYC_COLORS[selected.kyc_status] || KYC_COLORS.unverified}`}>
                         KYC: {selected.kyc_status || 'unverified'}
                       </span>
-                      <span className={`text-xs font-600 px-2 py-0.5 rounded-lg ${selected.is_suspended ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
-                        {selected.is_suspended ? 'Suspended' : 'Aktif'}
+                      <span className={`text-xs font-600 px-2 py-0.5 rounded-lg ${selected.suspended ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700'}`}>
+                        {selected.suspended ? 'Suspended' : 'Aktif'}
                       </span>
                     </div>
                   </div>
@@ -246,10 +246,12 @@ export default function AdminUsers() {
                   {[
                     { label: 'NIK', value: selected.nik || '-' },
                     { label: 'No. HP', value: selected.phone || '-' },
+                    { label: 'Tempat Lahir', value: selected.birth_place || '-' },
+                    { label: 'Tanggal Lahir', value: selected.birth_date || '-' },
                     { label: 'Pekerjaan', value: selected.occupation || '-' },
-                    { label: 'Penghasilan', value: selected.monthly_income ? `Rp ${selected.monthly_income?.toLocaleString('id')}` : '-' },
+                    { label: 'Penghasilan', value: selected.income ? `Rp ${Number(selected.income).toLocaleString('id')}` : '-' },
+                    { label: 'Alamat', value: selected.address || '-' },
                     { label: 'Terdaftar', value: formatDateTime(selected.created_at) },
-                    { label: 'Update Terakhir', value: formatDateTime(selected.updated_at) },
                   ].map(({ label, value }) => (
                     <div key={label}>
                       <p className="text-xs text-slate-400 mb-0.5">{label}</p>

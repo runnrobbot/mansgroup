@@ -42,7 +42,7 @@ export default function UserDashboard() {
 
   const activeLoans = loans.filter(l => ['disbursed', 'overdue'].includes(l.status))
   const activeGadais = gadais.filter(g => ['active', 'due', 'extended'].includes(g.status))
-  const pendingLoans = loans.filter(l => ['pending', 'review'].includes(l.status))
+  const pendingLoans = loans.filter(l => ['pending', 'review', 'approved'].includes(l.status))
   const totalOutstanding = activeLoans.reduce((sum, l) => sum + (l.remaining_amount || 0), 0)
   const hasOverdue = activeLoans.some(l => l.status === 'overdue') || activeGadais.some(g => g.status === 'due')
   const hasReward = profile?.reward_eligible
