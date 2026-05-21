@@ -77,6 +77,16 @@ export const kycService = {
     return { data, error }
   },
 
+  async listAll({ status = '', limit = 50 } = {}) {
+    let query = supabase
+      .from('payments')
+      .select('*, profiles(full_name), loans(ref_number), gadai_applications(ref_number)', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .limit(limit)
+    if (status) query = query.eq('status', status)
+    return query
+  },
+
   async listPending() {
     const { data, error } = await supabase
       .from('kyc_documents')
@@ -308,6 +318,16 @@ export const paymentService = {
       .select()
       .single()
     return { data, error }
+  },
+
+  async listAll({ status = '', limit = 50 } = {}) {
+    let query = supabase
+      .from('payments')
+      .select('*, profiles(full_name), loans(ref_number), gadai_applications(ref_number)', { count: 'exact' })
+      .order('created_at', { ascending: false })
+      .limit(limit)
+    if (status) query = query.eq('status', status)
+    return query
   },
 
   async listPending() {

@@ -27,6 +27,7 @@ const PaymentsPage = lazy(() => import('./pages/dashboard/PaymentsPage'))
 const ProfilePage = lazy(() => import('./pages/dashboard/ProfilePage'))
 const LoanDetailPage = lazy(() => import('./pages/dashboard/LoanDetailPage'))
 const DocumentsPage = lazy(() => import('./pages/dashboard/DocumentsPage'))
+const NotificationsPage = lazy(() => import('./pages/dashboard/NotificationsPage'))
 
 // Staff
 const StaffDashboard = lazy(() => import('./pages/staff/StaffDashboard'))
@@ -39,6 +40,7 @@ const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard'))
 const AdminApprovals = lazy(() => import('./pages/admin/AdminApprovals'))
 const AdminUsers = lazy(() => import('./pages/admin/AdminUsers'))
 const AdminBlacklist = lazy(() => import('./pages/admin/AdminBlacklist'))
+const AdminTransactions = lazy(() => import('./pages/admin/AdminTransactions'))
 
 // Founder
 const FounderDashboard = lazy(() => import('./pages/founder/FounderDashboard'))
@@ -89,6 +91,7 @@ function AppRoutes() {
       <Route path="/dashboard/payments" element={<RequireAuth><PaymentsPage /></RequireAuth>} />
       <Route path="/dashboard/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
       <Route path="/dashboard/documents" element={<RequireAuth><DocumentsPage /></RequireAuth>} />
+      <Route path="/dashboard/notifications" element={<RequireAuth><NotificationsPage /></RequireAuth>} />
 
       {/* Staff */}
       <Route path="/staff" element={<RequireAuth><RequireRole minRole="staff"><StaffDashboard /></RequireRole></RequireAuth>} />
@@ -101,9 +104,10 @@ function AppRoutes() {
       <Route path="/admin/approvals" element={<RequireAuth><RequireRole minRole="admin"><AdminApprovals /></RequireRole></RequireAuth>} />
       <Route path="/admin/users" element={<RequireAuth><RequireRole minRole="admin"><AdminUsers /></RequireRole></RequireAuth>} />
       <Route path="/admin/blacklist" element={<RequireAuth><RequireRole minRole="admin"><AdminBlacklist /></RequireRole></RequireAuth>} />
+      <Route path="/admin/transactions" element={<RequireAuth><RequireRole minRole="admin"><AdminTransactions /></RequireRole></RequireAuth>} />
+      <Route path="/admin/payments" element={<RequireAuth><RequireRole minRole="admin"><AdminTransactions /></RequireRole></RequireAuth>} />
 
       {/* Founder */}
-      {/* Founder - individual pages */}
       <Route path="/founder" element={<RequireAuth><RequireRole role="founder"><FounderDashboard /></RequireRole></RequireAuth>} />
       <Route path="/founder/revenue" element={<RequireAuth><RequireRole role="founder"><FounderRevenue /></RequireRole></RequireAuth>} />
       <Route path="/founder/loans" element={<RequireAuth><RequireRole role="founder"><FounderLoans /></RequireRole></RequireAuth>} />
@@ -111,8 +115,6 @@ function AppRoutes() {
       <Route path="/founder/users" element={<RequireAuth><RequireRole role="founder"><FounderUsers /></RequireRole></RequireAuth>} />
       <Route path="/founder/npl" element={<RequireAuth><RequireRole role="founder"><FounderNPL /></RequireRole></RequireAuth>} />
       <Route path="/founder/growth" element={<RequireAuth><RequireRole role="founder"><FounderGrowth /></RequireRole></RequireAuth>} />
-      {/* Founder can also access admin & staff pages */}
-      <Route path="/admin/*" element={<RequireAuth><RequireRole minRole="admin"><AdminDashboard /></RequireRole></RequireAuth>} />
 
       {/* 404 */}
       <Route path="*" element={
