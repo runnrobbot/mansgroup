@@ -2,7 +2,7 @@ import { Navbar } from '../components/layout/Navbar'
 import { Footer } from '../components/layout/Footer'
 import { Link } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { ArrowRight, Zap, Clock, Shield, TrendingUp, Award } from 'lucide-react'
+import { ArrowRight, Zap, Clock, Shield, Award } from 'lucide-react'
 import { LoanSimulator } from '../components/features/LoanSimulator'
 
 export default function MansLaterPage() {

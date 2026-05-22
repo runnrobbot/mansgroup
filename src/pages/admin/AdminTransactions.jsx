@@ -4,7 +4,7 @@ import { Card } from '../../components/ui/Card'
 import { Table, TableHead, Th, TableBody, Tr, Td, EmptyRow } from '../../components/ui/Table'
 import { loanService, gadaiService } from '../../services'
 import { formatIDR, formatDate } from '../../lib/utils'
-import { CreditCard, Package, ArrowDownCircle, CheckCircle, AlertCircle } from 'lucide-react'
+import { CreditCard, Package, ArrowDownCircle, CheckCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const STATUS_COLORS = {

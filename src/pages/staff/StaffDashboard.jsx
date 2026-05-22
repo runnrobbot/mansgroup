@@ -6,11 +6,7 @@ import { Card, StatCard } from '../../components/ui/Card'
 import { StatusBadge } from '../../components/ui/Badge'
 import { loanService, gadaiService, kycService, warehouseService, paymentService } from '../../services'
 import { formatIDR, formatRelativeTime } from '../../lib/utils'
-import {
-  ClipboardList, Truck, Warehouse, AlertTriangle,
-  ChevronRight, CheckCircle, Package, FileSearch,
-  Clock, ArrowRight, ShieldCheck
-} from 'lucide-react'
+import { ClipboardList, Truck, Warehouse, ChevronRight, CheckCircle, Package, FileSearch, ArrowRight, ShieldCheck } from 'lucide-react'
 
 const stagger = { visible: { transition: { staggerChildren: 0.06 } } }
 const fadeUp = { hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0, transition: { duration: 0.3 } } }

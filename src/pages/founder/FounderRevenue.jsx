@@ -6,7 +6,7 @@ import {
 } from 'recharts'
 import { DashboardLayout } from '../../components/layout/DashboardLayout'
 import { Card, StatCard } from '../../components/ui/Card'
-import { analyticsService, paymentService } from '../../services'
+import { analyticsService } from '../../services'
 import { formatIDR, formatDate } from '../../lib/utils'
 import { TrendingUp, Wallet, CreditCard, Package, ArrowUpRight, ArrowDownRight } from 'lucide-react'
 import { format, subMonths } from 'date-fns'

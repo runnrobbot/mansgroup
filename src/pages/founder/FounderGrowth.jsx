@@ -5,7 +5,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts'
 import { DashboardLayout } from '../../components/layout/DashboardLayout'
-import { Card, StatCard } from '../../components/ui/Card'
+import { Card } from '../../components/ui/Card'
 import { analyticsService } from '../../services'
 import { formatIDR } from '../../lib/utils'
 import { TrendingUp, Users, CreditCard, Package, ArrowUpRight, ArrowDownRight } from 'lucide-react'

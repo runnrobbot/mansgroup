@@ -6,7 +6,7 @@ import { Table, TableHead, Th, TableBody, Tr, Td, EmptyRow } from '../../compone
 import { Modal, ModalBody } from '../../components/ui/Modal'
 import { gadaiService } from '../../services'
 import { formatIDR, formatDate } from '../../lib/utils'
-import { Eye, Search, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Eye, ChevronLeft, ChevronRight } from 'lucide-react'
 
 const STATUS_OPTIONS = ['', 'pending', 'reviewing', 'approved', 'rejected', 'active', 'stored', 'redeemed', 'forfeited']
 

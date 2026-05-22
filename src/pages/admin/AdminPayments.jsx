@@ -8,7 +8,7 @@ import { useConfirm } from '../../components/ui/ConfirmModal'
 import { paymentService } from '../../services'
 import { formatIDR, formatDate, formatDateTime } from '../../lib/utils'
 import { useAuth } from '../../contexts/AuthContext'
-import { CheckCircle, XCircle, Eye, ExternalLink, Wallet, CreditCard } from 'lucide-react'
+import { CheckCircle, XCircle, Eye, ExternalLink, CreditCard } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const STATUS_COLORS = {

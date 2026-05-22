@@ -6,13 +6,8 @@ import { Button } from '../../components/ui/Button'
 import { useAuth } from '../../contexts/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { documentService } from '../../services'
-import { getInitials, formatDate } from '../../lib/utils'
-import {
-  User, Lock, Shield, Mail, Eye, EyeOff,
-  CheckCircle, Clock, XCircle, Upload, Camera,
-  CreditCard, Phone, MapPin, Briefcase, Calendar,
-  AlertCircle, ChevronRight, FileText
-} from 'lucide-react'
+import { getInitials } from '../../lib/utils'
+import { User, Lock, Shield, Mail, Eye, EyeOff, CheckCircle, Clock, XCircle, Upload, Camera, CreditCard, AlertCircle, ChevronRight } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { cn } from '../../lib/utils'
 

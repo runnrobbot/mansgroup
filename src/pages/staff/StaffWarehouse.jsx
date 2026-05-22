@@ -7,7 +7,7 @@ import { useConfirm } from '../../components/ui/ConfirmModal'
 import { Table, TableHead, Th, TableBody, Tr, Td, EmptyRow } from '../../components/ui/Table'
 import { warehouseService } from '../../services'
 import { formatDate, formatIDR, generateRefNumber } from '../../lib/utils'
-import { Warehouse, Plus, Eye, Edit, Package, Tag, Calendar, DollarSign } from 'lucide-react'
+import { Warehouse, Plus, Eye, Edit, Package, Tag, DollarSign } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const CATEGORIES = ['Elektronik', 'Perhiasan', 'Kendaraan', 'Tas & Fashion', 'Jam Tangan', 'Lainnya']

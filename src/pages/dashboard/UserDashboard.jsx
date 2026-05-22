@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   CreditCard, Package, Bell, AlertCircle,
-  ArrowRight, Clock, Award, Plus, Hand, PartyPopper, TrendingUp
+  ArrowRight, Clock, Award, Plus, Hand, PartyPopper, Lock
 } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import { DashboardLayout } from '../../components/layout/DashboardLayout'
@@ -12,13 +12,58 @@ import { StatusBadge } from '../../components/ui/Badge'
 import { loanService, gadaiService, paymentService } from '../../services'
 import { formatIDR, formatDate, formatRelativeTime } from '../../lib/utils'
 import { useNotifications } from '../../contexts/NotificationContext'
+import toast from 'react-hot-toast'
 
 const stagger = { visible: { transition: { staggerChildren: 0.08 } } }
 const fadeUp = { hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0, transition: { duration: 0.35 } } }
 
 export default function UserDashboard() {
   const { profile } = useAuth()
+  const navigate = useNavigate()
   const { notifications } = useNotifications()
+
+  // Profile completeness check
+  const isProfileComplete = !!(
+    profile?.full_name &&
+    profile?.nik &&
+    profile?.phone &&
+    profile?.birth_date &&
+    profile?.address &&
+    profile?.occupation &&
+    profile?.income
+  )
+  const isKycVerified = profile?.kyc_status === 'verified'
+  const canApply = isProfileComplete && isKycVerified
+
+  const handleApplyLoan = (e) => {
+    if (!isProfileComplete) {
+      e.preventDefault()
+      toast.error('Lengkapi data profil terlebih dahulu')
+      navigate('/dashboard/profile')
+      return
+    }
+    if (!isKycVerified) {
+      e.preventDefault()
+      toast.error('Verifikasi KYC diperlukan sebelum pengajuan')
+      navigate('/dashboard/profile?tab=kyc')
+      return
+    }
+  }
+
+  const handleApplyGadai = (e) => {
+    if (!isProfileComplete) {
+      e.preventDefault()
+      toast.error('Lengkapi data profil terlebih dahulu')
+      navigate('/dashboard/profile')
+      return
+    }
+    if (!isKycVerified) {
+      e.preventDefault()
+      toast.error('Verifikasi KYC diperlukan sebelum pengajuan')
+      navigate('/dashboard/profile?tab=kyc')
+      return
+    }
+  }
   const [loans, setLoans] = useState([])
   const [gadais, setGadais] = useState([])
   const [payments, setPayments] = useState([])
@@ -72,11 +117,27 @@ export default function UserDashboard() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Link to="/dashboard/loans/apply" className="btn-primary text-xs py-2 px-3.5 rounded-lg">
-              <Plus size={13} /> Pinjaman
+            <Link
+              to="/dashboard/loans/apply"
+              onClick={handleApplyLoan}
+              className={`text-xs py-2 px-3.5 rounded-lg inline-flex items-center gap-1.5 font-600 transition-all ${
+                canApply
+                  ? 'btn-primary'
+                  : 'bg-slate-200 text-slate-500 cursor-pointer rounded-lg'
+              }`}
+            >
+              {canApply ? <Plus size={13} /> : <Lock size={13} />} Pinjaman
             </Link>
-            <Link to="/dashboard/gadai/apply" className="btn-secondary text-xs py-2 px-3.5 rounded-lg">
-              <Plus size={13} /> Gadai
+            <Link
+              to="/dashboard/gadai/apply"
+              onClick={handleApplyGadai}
+              className={`text-xs py-2 px-3.5 rounded-lg inline-flex items-center gap-1.5 font-600 transition-all ${
+                canApply
+                  ? 'btn-secondary'
+                  : 'bg-slate-100 text-slate-400 cursor-pointer border border-slate-200 rounded-lg'
+              }`}
+            >
+              {canApply ? <Plus size={13} /> : <Lock size={13} />} Gadai
             </Link>
           </div>
         </motion.div>

@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { DashboardLayout } from '../../components/layout/DashboardLayout'
 import { Card } from '../../components/ui/Card'
-import { StatusBadge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { Table, TableHead, Th, TableBody, Tr, Td, EmptyRow } from '../../components/ui/Table'
 import { Modal, ModalBody, ModalFooter } from '../../components/ui/Modal'
@@ -9,7 +8,7 @@ import { useConfirm } from '../../components/ui/ConfirmModal'
 import { useAuth } from '../../contexts/AuthContext'
 import { paymentService, loanService } from '../../services'
 import { formatIDR, formatDate, generateRefNumber } from '../../lib/utils'
-import { CreditCard, Receipt, CheckCircle, ExternalLink, Loader } from 'lucide-react'
+import { CreditCard, Loader } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const STATUS_LABELS = {

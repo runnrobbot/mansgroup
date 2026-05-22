@@ -1,5 +1,5 @@
 import { MANSLATER_CONFIG, MANSGADAI_CONFIG } from './constants'
-import { format, addMonths, differenceInDays } from 'date-fns'
+import { format, addMonths } from 'date-fns'
 
 // Format currency to IDR
 export function formatIDR(amount) {

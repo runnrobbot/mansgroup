@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { motion, AnimatePresence } from 'framer-motion'
-import { CheckCircle, ChevronRight, User, FileText, CreditCard, Shield, AlertCircle } from 'lucide-react'
+import { CheckCircle, ChevronRight, User, FileText, CreditCard, Shield } from 'lucide-react'
 import { DashboardLayout } from '../../components/layout/DashboardLayout'
 import { Card } from '../../components/ui/Card'
 import { Input, CustomSelect, Textarea, CurrencyInput } from '../../components/ui/Input'
@@ -39,6 +39,26 @@ const STEPS = [
 export default function ApplyLoanPage() {
   const { profile } = useAuth()
   const navigate = useNavigate()
+  // ── Profile & KYC guard ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (!profile) return
+    const isProfileComplete = !!(
+      profile.full_name && profile.nik && profile.phone &&
+      profile.birth_date && profile.address && profile.occupation && profile.income
+    )
+    if (!isProfileComplete) {
+      toast.error('Lengkapi data profil sebelum mengajukan pinjaman')
+      navigate('/dashboard/profile')
+      return
+    }
+    if (profile.kyc_status !== 'verified') {
+      toast.error('Verifikasi KYC diperlukan sebelum pengajuan')
+      navigate('/dashboard/profile')
+      return
+    }
+  }, [profile, navigate])
+  // ─────────────────────────────────────────────────────────────────────────
+
   const [step, setStep] = useState(1)
   const [files, setFiles] = useState({})
   const [loading, setLoading] = useState(false)

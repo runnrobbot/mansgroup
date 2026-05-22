@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { DashboardLayout } from '../../components/layout/DashboardLayout'
@@ -27,6 +27,26 @@ const CATEGORY_OPTIONS = COLLATERAL_CATEGORIES.map(c => ({
 export default function ApplyGadaiPage() {
   const { profile } = useAuth()
   const navigate = useNavigate()
+  // ── Profile & KYC guard ──────────────────────────────────────────────────
+  useEffect(() => {
+    if (!profile) return
+    const isProfileComplete = !!(
+      profile.full_name && profile.nik && profile.phone &&
+      profile.birth_date && profile.address && profile.occupation && profile.income
+    )
+    if (!isProfileComplete) {
+      toast.error('Lengkapi data profil sebelum mengajukan gadai')
+      navigate('/dashboard/profile')
+      return
+    }
+    if (profile.kyc_status !== 'verified') {
+      toast.error('Verifikasi KYC diperlukan sebelum pengajuan')
+      navigate('/dashboard/profile')
+      return
+    }
+  }, [profile, navigate])
+  // ─────────────────────────────────────────────────────────────────────────
+
   const [files, setFiles] = useState({})
   const [loading, setLoading] = useState(false)
   const [bankCode, setBankCode] = useState('BCA')

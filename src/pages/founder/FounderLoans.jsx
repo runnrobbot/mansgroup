@@ -1,13 +1,12 @@
 import { useEffect, useState, useCallback } from 'react'
-import { motion } from 'framer-motion'
 import { DashboardLayout } from '../../components/layout/DashboardLayout'
-import { Card, StatCard } from '../../components/ui/Card'
+import { Card } from '../../components/ui/Card'
 import { StatusBadge } from '../../components/ui/Badge'
 import { Table, TableHead, Th, TableBody, Tr, Td, EmptyRow } from '../../components/ui/Table'
 import { Modal, ModalBody } from '../../components/ui/Modal'
 import { loanService } from '../../services'
 import { formatIDR, formatDate } from '../../lib/utils'
-import { CreditCard, Clock, CheckCircle, AlertTriangle, Search, Eye, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Search, Eye, ChevronLeft, ChevronRight } from 'lucide-react'
 
 const STATUS_OPTIONS = ['', 'pending', 'reviewing', 'approved', 'rejected', 'disbursed', 'active', 'overdue', 'completed']
 

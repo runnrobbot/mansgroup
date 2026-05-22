@@ -77,16 +77,6 @@ export const kycService = {
     return { data, error }
   },
 
-  async listAll({ status = '', limit = 50 } = {}) {
-    let query = supabase
-      .from('payments')
-      .select('*, profiles(full_name), loans(ref_number), gadai_applications(ref_number)', { count: 'exact' })
-      .order('created_at', { ascending: false })
-      .limit(limit)
-    if (status) query = query.eq('status', status)
-    return query
-  },
-
   async listPending() {
     const { data, error } = await supabase
       .from('kyc_documents')
@@ -169,18 +159,6 @@ export const loanService = {
     return query
   },
 
-  async getAnalytics() {
-    const { data, error } = await supabase.rpc('get_loan_analytics')
-    return { data, error }
-  },
-
-  async createSchedules(loanId, schedules) {
-    const { data, error } = await supabase
-      .from('loan_schedules')
-      .insert(schedules.map((s) => ({ loan_id: loanId, ...s })))
-      .select()
-    return { data, error }
-  },
 }
 
 // ─── Gadai (MansGadai) ───────────────────────────────────────────────────────
@@ -481,22 +459,6 @@ export const notificationService = {
   },
 }
 
-// ─── Activity Logs ────────────────────────────────────────────────────────────
-
-export const auditService = {
-  async log({ userId, action, entityType, entityId, metadata = {}, ipAddress }) {
-    await supabase.from('audit_logs').insert({
-      user_id: userId,
-      action,
-      entity_type: entityType,
-      entity_id: entityId,
-      metadata,
-      ip_address: ipAddress,
-      created_at: new Date().toISOString(),
-    })
-  },
-}
-
 // ─── Founder Analytics ────────────────────────────────────────────────────────
 
 export const analyticsService = {
@@ -516,8 +478,4 @@ export const analyticsService = {
     }
   },
 
-  async getMonthlyGrowth() {
-    const { data, error } = await supabase.rpc('get_monthly_growth')
-    return { data, error }
-  },
 }

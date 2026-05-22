@@ -12,7 +12,7 @@ import {
   TrendingUp, Users, CreditCard, Package, AlertOctagon,
   DollarSign, Activity, BarChart3
 } from 'lucide-react'
-import { format, subMonths, startOfMonth } from 'date-fns'
+import { format, subMonths } from 'date-fns'
 
 const COLORS = ['#2D6A4F', '#52B788', '#74C69D', '#95D5B2']
 
