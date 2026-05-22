@@ -53,14 +53,18 @@ export default function MyGadaiPage() {
   )
   const isKycVerified = profile?.kyc_status === 'verified'
 
-  // Gadai aktif = masih ada barang di tangan kita
-  const activeGadai = gadais.find(g =>
-    ['active', 'due', 'extended', 'overdue', 'waiting_pickup', 'picked_up', 'received'].includes(g.status)
-  )
-  // Pengajuan masih pending review
-  const pendingGadai = gadais.find(g =>
-    ['pending', 'review'].includes(g.status)
-  )
+  // All non-terminal gadai (active, in-progress, pending, approved) count toward the 3-gadai cap
+  const GADAI_MAX = 3
+  const activeGadaiStatuses = ['active', 'due', 'extended', 'overdue', 'waiting_pickup', 'picked_up', 'received']
+  const pendingGadaiStatuses = ['pending', 'review', 'revision', 'approved']
+
+  const activeGadais = gadais.filter(g => activeGadaiStatuses.includes(g.status))
+  const pendingGadais = gadais.filter(g => pendingGadaiStatuses.includes(g.status))
+  const inFlightCount = activeGadais.length + pendingGadais.length // total yang belum selesai
+
+  // Kept for convenience (used in extension logic)
+  const activeGadai = activeGadais[0] || null
+  const pendingGadai = pendingGadais[0] || null
 
   const handleExtend = async (gadai) => {
     const sim = calculateGadaiSimulation(gadai.loan_amount || 0)
@@ -78,7 +82,7 @@ export default function MyGadaiPage() {
     setActionLoading(false)
   }
 
-  // ── Tombol "Ajukan Gadai" — 4 kondisi ────────────────────────────────────
+  // ── Tombol "Ajukan Gadai" ─────────────────────────────────────────────────
   const getApplyButton = () => {
     if (!isProfileComplete || !isKycVerified) {
       return (
@@ -93,10 +97,11 @@ export default function MyGadaiPage() {
         </button>
       )
     }
-    if (activeGadai) {
+    // Sudah mencapai batas maksimal 3 gadai aktif/pending
+    if (inFlightCount >= GADAI_MAX) {
       return (
         <button
-          onClick={() => toast.error('Selesaikan atau tebus gadai aktif terlebih dahulu sebelum mengajukan gadai baru')}
+          onClick={() => toast.error(`Maksimal ${GADAI_MAX} gadai aktif/pengajuan per akun. Selesaikan salah satu terlebih dahulu.`)}
           className="inline-flex items-center gap-1.5 text-sm py-2 px-4 rounded-lg font-600 bg-slate-200 text-slate-500 cursor-pointer transition-all hover:bg-slate-300"
         >
           <Lock size={14} /> Ajukan Gadai
@@ -118,7 +123,7 @@ export default function MyGadaiPage() {
         to="/dashboard/gadai/apply"
         className="inline-flex items-center gap-1.5 text-sm py-2 px-4 rounded-lg font-600 btn-primary"
       >
-        <Plus size={14} /> Ajukan Gadai
+        <Plus size={14} /> Ajukan Gadai {inFlightCount > 0 && <span className="text-xs opacity-70">({inFlightCount}/{GADAI_MAX})</span>}
       </Link>
     )
   }
@@ -157,23 +162,18 @@ export default function MyGadaiPage() {
         </div>
       )
     }
-    if (activeGadai) {
+    // Cap reached
+    if (inFlightCount >= GADAI_MAX) {
       return (
         <div className="flex items-start gap-3 p-4 bg-slate-50 border border-slate-200 rounded-2xl">
           <Lock size={16} className="text-slate-400 flex-shrink-0 mt-0.5" />
           <div className="flex-1">
-            <p className="text-sm font-700 text-slate-700">Sudah ada gadai aktif</p>
+            <p className="text-sm font-700 text-slate-700">Batas maksimal gadai tercapai</p>
             <p className="text-xs text-slate-500 mt-0.5">
-              Gadai <span className="font-600">{activeGadai.ref_number}</span> ({activeGadai.item_name || 'barang'}, {formatIDR(activeGadai.loan_amount)}) masih aktif.
-              Tebus atau selesaikan terlebih dahulu sebelum mengajukan gadai baru.
+              Anda memiliki <span className="font-600">{inFlightCount} dari {GADAI_MAX}</span> gadai aktif/dalam proses.
+              Selesaikan salah satu sebelum mengajukan gadai baru.
             </p>
           </div>
-          <button
-            onClick={() => { setSelected(activeGadai); setDetailOpen(true) }}
-            className="ml-auto text-xs font-600 text-slate-600 hover:text-slate-700 flex items-center gap-1 whitespace-nowrap"
-          >
-            Detail <ArrowRight size={12} />
-          </button>
         </div>
       )
     }

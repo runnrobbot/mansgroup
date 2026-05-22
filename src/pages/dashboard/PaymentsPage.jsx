@@ -32,7 +32,8 @@ function loadMidtrans(clientKey) {
   return new Promise((resolve) => {
     if (window.snap) { resolve(); return }
     const script = document.createElement('script')
-    script.src = 'https://app.sandbox.midtrans.com/snap/snap.js' // change to production URL in prod
+    const snapUrl = import.meta.env.VITE_MIDTRANS_SNAP_URL || 'https://app.midtrans.com/snap/snap.js'
+    script.src = snapUrl
     script.setAttribute('data-client-key', clientKey)
     script.onload = () => resolve()
     document.head.appendChild(script)
@@ -74,7 +75,7 @@ export default function PaymentsPage() {
 
   const handlePay = async () => {
     if (!selectedLoan || !amount || Number(amount) <= 0) {
-      toast.error('Masukkan jumlah pembayaran yang valid')
+      toast.error('Masukkan nominal pembayaran yang valid')
       return
     }
 
@@ -121,9 +122,9 @@ export default function PaymentsPage() {
       }).catch(() => null)
 
       if (!snapTokenRes || !snapTokenRes.ok) {
-        // Fallback: mark as verification for manual review (development mode)
+        // Gateway tidak tersedia — catat pembayaran untuk verifikasi manual oleh admin
         await paymentService.update(payment?.id, { status: 'verification' })
-        toast.success('Pembayaran berhasil dicatat. Admin akan melakukan verifikasi.', { duration: 5000 })
+        toast.success('Pembayaran berhasil dicatat dan menunggu konfirmasi dari tim kami.', { duration: 5000 })
         setPayOpen(false)
         load()
         setPaying(false)
@@ -150,7 +151,7 @@ export default function PaymentsPage() {
             status: 'verification',
             midtrans_status: result.transaction_status,
           })
-          toast('Pembayaran pending. Selesaikan pembayaran sesuai instruksi.', { icon: '⏳' })
+          toast('Pembayaran sedang diproses. Selesaikan sesuai instruksi yang diberikan.', { icon: '⏳' })
           setPayOpen(false)
           load()
         },
@@ -159,7 +160,7 @@ export default function PaymentsPage() {
           toast.error('Pembayaran gagal. Silakan coba lagi.')
         },
         onClose: () => {
-          toast('Pembayaran dibatalkan.', { icon: '❌' })
+          toast('Pembayaran dibatalkan oleh pengguna.')
         },
       })
     } catch (err) {
@@ -282,7 +283,7 @@ export default function PaymentsPage() {
                     placeholder="Masukkan nominal yang ingin dibayar"
                     min={1}
                   />
-                  <p className="text-xs text-slate-400 mt-1">Kamu akan diarahkan ke halaman pembayaran Midtrans</p>
+                  <p className="text-xs text-slate-400 mt-1">Anda akan diarahkan ke halaman pembayaran yang aman melalui Midtrans</p>
                 </div>
 
                 <div className="flex items-center gap-2 p-3 bg-blue-50 rounded-xl">

@@ -35,8 +35,9 @@ export default function MyLoansPage() {
   const activeLoan = loans.find(l =>
     ['disbursed', 'overdue'].includes(l.status)
   )
+  // Semua status yang belum final (termasuk approved dan revision)
   const pendingLoan = loans.find(l =>
-    ['pending', 'review', 'approved'].includes(l.status)
+    ['pending', 'review', 'revision', 'approved'].includes(l.status)
   )
 
   // Tombol "Ajukan Baru" — 4 kondisi

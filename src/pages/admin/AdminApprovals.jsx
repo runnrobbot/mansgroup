@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { DashboardLayout } from '../../components/layout/DashboardLayout'
 import { Card } from '../../components/ui/Card'
 import { StatusBadge } from '../../components/ui/Badge'
@@ -6,10 +6,10 @@ import { Table, TableHead, Th, TableBody, Tr, Td, EmptyRow } from '../../compone
 import { Modal, ModalBody, ModalFooter } from '../../components/ui/Modal'
 import { Button } from '../../components/ui/Button'
 import { useConfirm } from '../../components/ui/ConfirmModal'
-import { loanService, gadaiService, notificationService } from '../../services'
+import { loanService, gadaiService, notificationService, documentService } from '../../services'
 import { formatIDR, formatDate, formatDateTime } from '../../lib/utils'
 import { useAuth } from '../../contexts/AuthContext'
-import { Eye, CheckCircle, XCircle, Banknote, CreditCard, Package, ExternalLink, AlertTriangle } from 'lucide-react'
+import { Eye, CheckCircle, XCircle, Banknote, CreditCard, Package, ExternalLink, AlertTriangle, Building2, ImagePlus, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 function InfoRow({ label, value }) {
@@ -36,20 +36,39 @@ export default function AdminApprovals() {
   const [disburseOpen, setDisburseOpen] = useState(false)
   const [disburseAmount, setDisburseAmount] = useState('')
   const [disburseRef, setDisburseRef] = useState('')
+  const [proofUrl, setProofUrl] = useState('')
+  const [proofFile, setProofFile] = useState(null)
+  const [proofPreview, setProofPreview] = useState(null)
+  const [proofUploading, setProofUploading] = useState(false)
+
+  const isLoan = tab === 'loans'
 
   const loadCounts = async () => {
-    const [l, g] = await Promise.all([
+    const [lr, la, gr, ga] = await Promise.all([
       loanService.listAll({ status: 'review', limit: 1 }),
+      loanService.listAll({ status: 'approved', limit: 1 }),
       gadaiService.listAll({ status: 'review', limit: 1 }),
+      gadaiService.listAll({ status: 'approved', limit: 1 }),
     ])
-    setCounts({ loans: l.count || 0, gadai: g.count || 0 })
+    setCounts({
+      loans: (lr.count || 0) + (la.count || 0),
+      gadai: (gr.count || 0) + (ga.count || 0),
+    })
   }
 
   const load = async () => {
     setLoading(true)
-    const svc = tab === 'loans' ? loanService : gadaiService
-    const { data } = await svc.listAll({ status: 'review', limit: 50 })
-    setItems(data || [])
+    const svc = isLoan ? loanService : gadaiService
+    // Fetch both review (pending approval) and approved (pending disbursement)
+    const [reviewRes, approvedRes] = await Promise.all([
+      svc.listAll({ status: 'review', limit: 50 }),
+      svc.listAll({ status: 'approved', limit: 50 }),
+    ])
+    const combined = [
+      ...(reviewRes.data || []),
+      ...(approvedRes.data || []),
+    ].sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
+    setItems(combined)
     setLoading(false)
   }
 
@@ -65,56 +84,87 @@ export default function AdminApprovals() {
     const suggested = selected.suggested_amount || selected.net_disbursement || selected.amount || selected.loan_amount
     setDisburseAmount(String(suggested || ''))
     setDisburseRef('')
+    setProofUrl('')
+    setProofFile(null)
+    setProofPreview(null)
     setDisburseOpen(true)
   }
 
+  const handleProofFile = useCallback((file) => {
+    if (!file) return
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      toast.error('Format tidak didukung. Gunakan JPG, PNG, atau WebP.')
+      return
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Ukuran maksimal 5MB.')
+      return
+    }
+    setProofFile(file)
+    const reader = new FileReader()
+    reader.onload = e => setProofPreview(e.target.result)
+    reader.readAsDataURL(file)
+  }, [])
+
+  // ── Approve ──────────────────────────────────────────────────────────────
   const handleApprove = async () => {
     if (!selected) return
     const ok = await confirm({
       title: 'Setujui Pengajuan?',
-      message: `Pengajuan dari ${selected.profiles?.full_name} akan disetujui. Langkah berikutnya adalah pencairan dana melalui Midtrans.`,
+      message: `Pengajuan dari ${selected.profiles?.full_name} akan disetujui. Langkah berikutnya adalah pencairan dana secara manual ke rekening nasabah.`,
       variant: 'info',
       confirmLabel: 'Ya, Setujui',
     })
     if (!ok) return
     setActionLoading(true)
-    const svc = tab === 'loans' ? loanService : gadaiService
-    const { error } = await svc.updateFull(selected.id, {
+
+    // Build update payload — approved_at only exists on loans table, not gadai_applications
+    const baseUpdate = {
       status: 'approved',
-      admin_notes: notes,
+      admin_notes: notes || null,
       approved_by: profile?.id,
-      approved_at: new Date().toISOString(),
-      // If staff revised limit, lock it in
-      ...(selected.suggested_amount ? { approved_amount: selected.suggested_amount } : {}),
       updated_at: new Date().toISOString(),
-    })
+      ...(selected.suggested_amount ? { approved_amount: selected.suggested_amount } : {}),
+    }
+    if (isLoan) {
+      baseUpdate.approved_at = new Date().toISOString()
+    }
+
+    const svc = isLoan ? loanService : gadaiService
+    const { error } = await svc.updateFull(selected.id, baseUpdate)
+
     if (!error && selected.user_id) {
       await notificationService.send({
         userId: selected.user_id,
         type: 'approval',
         title: 'Pengajuan Disetujui ✓',
-        message: `Pengajuan ${selected.ref_number} telah disetujui${selected.suggested_amount ? ` dengan limit ${formatIDR(selected.suggested_amount)}` : ''}. Dana akan segera dicairkan.`,
+        message: `Pengajuan ${selected.ref_number} telah disetujui${selected.suggested_amount ? ` dengan nilai ${formatIDR(selected.suggested_amount)}` : ''}. Tim kami akan segera memproses pencairan.`,
       })
     }
+
     setActionLoading(false)
     if (!error) {
       toast.success('Pengajuan berhasil disetujui')
       setSelected(null)
       load(); loadCounts()
-    } else toast.error('Gagal menyetujui')
+    } else {
+      console.error(error)
+      toast.error('Gagal menyetujui: ' + (error.message || 'Terjadi kesalahan sistem'))
+    }
   }
 
+  // ── Reject ───────────────────────────────────────────────────────────────
   const handleReject = async () => {
-    if (!notes.trim()) { toast.error('Tambahkan alasan penolakan'); return }
+    if (!notes.trim()) { toast.error('Tambahkan alasan penolakan sebelum melanjutkan'); return }
     const ok = await confirm({
       title: 'Tolak Pengajuan?',
-      message: `Pengajuan dari ${selected.profiles?.full_name} akan ditolak secara final.`,
+      message: `Pengajuan dari ${selected.profiles?.full_name} akan ditolak secara final. Nasabah akan mendapatkan notifikasi.`,
       variant: 'danger',
       confirmLabel: 'Ya, Tolak Final',
     })
     if (!ok) return
     setActionLoading(true)
-    const svc = tab === 'loans' ? loanService : gadaiService
+    const svc = isLoan ? loanService : gadaiService
     const { error } = await svc.updateFull(selected.id, {
       status: 'rejected',
       admin_notes: notes,
@@ -125,66 +175,99 @@ export default function AdminApprovals() {
       await notificationService.send({
         userId: selected.user_id,
         type: 'rejection',
-        title: 'Pengajuan Ditolak',
-        message: `Pengajuan ${selected.ref_number} ditolak. ${notes}`,
+        title: 'Pengajuan Tidak Disetujui',
+        message: `Pengajuan ${selected.ref_number} tidak dapat disetujui. Alasan: ${notes}`,
       })
     }
     setActionLoading(false)
     if (!error) {
-      toast.success('Pengajuan ditolak')
+      toast.success('Pengajuan telah ditolak')
       setSelected(null)
       load(); loadCounts()
-    } else toast.error('Gagal menolak')
+    } else {
+      console.error(error)
+      toast.error('Gagal menolak: ' + (error.message || 'Terjadi kesalahan sistem'))
+    }
   }
 
+  // ── Manual Disburse (admin transfers manually to nasabah's bank) ──────────
   const handleDisburse = async () => {
     const amt = Number(disburseAmount)
-    if (!amt || amt <= 0) { toast.error('Masukkan jumlah pencairan'); return }
+    if (!amt || amt <= 0) { toast.error('Masukkan jumlah pencairan yang valid'); return }
+    if (!disburseRef.trim()) { toast.error('Masukkan nomor referensi transfer sebagai bukti pencairan'); return }
 
     const ok = await confirm({
       title: 'Konfirmasi Pencairan Dana?',
-      message: `Dana sebesar ${formatIDR(amt)} akan dicairkan ke rekening ${selected.bank_code} ${selected.account_number} (${selected.account_name}). Pastikan transfer sudah dilakukan sebelum konfirmasi.`,
+      message: `Dana sebesar ${formatIDR(amt)} akan dicatat sebagai telah dicairkan ke rekening ${selected.bank_code} ${selected.account_number} (${selected.account_name || '-'}). Pastikan transfer bank sudah benar-benar dilakukan sebelum konfirmasi.`,
       variant: 'warning',
       confirmLabel: 'Konfirmasi Pencairan',
     })
     if (!ok) return
 
     setActionLoading(true)
-    const isLoan = tab === 'loans'
+
+    // Upload proof of transfer if provided
+    // Path: disbursements/{admin_uid}/{application_id}/... — satisfies RLS: position[2] = auth.uid()
+    let finalProofUrl = proofUrl || null
+    if (proofFile) {
+      setProofUploading(true)
+      const uploadPath = `disbursements/${profile.id}/${selected.id}/${Date.now()}-${proofFile.name.replace(/\s+/g, '_')}`
+      const { url, error: uploadErr } = await documentService.upload(proofFile, 'documents', uploadPath)
+      setProofUploading(false)
+      if (uploadErr) {
+        toast.error('Gagal mengupload bukti transfer. Periksa koneksi dan coba lagi.')
+        setActionLoading(false)
+        return
+      }
+      finalProofUrl = url
+    }
+
     const svc = isLoan ? loanService : gadaiService
+
+    // For gadai: status → waiting_pickup (barang dijemput dulu setelah dana cair)
+    // For loans: status → disbursed
+    const newStatus = isLoan ? 'disbursed' : 'waiting_pickup'
+
     const { error } = await svc.updateFull(selected.id, {
-      status: isLoan ? 'disbursed' : 'active',
+      status: newStatus,
       disbursed_at: new Date().toISOString(),
-      disbursement_ref: disburseRef || null,
+      disbursement_ref: disburseRef.trim() || null,
       net_disbursement: amt,
       approved_by: profile?.id,
       updated_at: new Date().toISOString(),
     })
+
     if (!error && selected.user_id) {
+      const msg = isLoan
+        ? `Dana sebesar ${formatIDR(amt)} telah ditransfer ke rekening ${selected.bank_code} ${selected.account_number} Anda. Ref: ${disburseRef.trim()}`
+        : `Dana sebesar ${formatIDR(amt)} telah ditransfer ke rekening Anda. Tim kami akan segera menjemput barang gadai Anda. Ref: ${disburseRef.trim()}`
+
       await notificationService.send({
         userId: selected.user_id,
         type: 'disbursement',
-        title: 'Dana Dicairkan ✓',
-        message: `Dana sebesar ${formatIDR(amt)} telah dicairkan ke rekening ${selected.bank_code} ${selected.account_number} Anda.`,
+        title: 'Dana Telah Dicairkan ✓',
+        message: msg,
       })
     }
+
     setActionLoading(false)
     if (!error) {
-      toast.success('Dana berhasil dicairkan!')
+      toast.success(isLoan ? 'Dana berhasil dicairkan' : 'Dana dicairkan — status beralih ke Menunggu Penjemputan')
       setDisburseOpen(false)
       setSelected(null)
       load(); loadCounts()
-    } else toast.error('Gagal mencairkan dana')
+    } else {
+      console.error(error)
+      toast.error('Gagal mencairkan dana: ' + (error.message || 'Terjadi kesalahan sistem'))
+    }
   }
-
-  const isLoan = tab === 'loans'
 
   return (
     <DashboardLayout role="admin">
       <div className="space-y-6">
         <div>
           <h1 className="text-xl font-800 text-slate-900">Final Approval</h1>
-          <p className="text-sm text-slate-500 mt-0.5">Setujui pengajuan yang sudah direview staff, lalu cairkan dana</p>
+          <p className="text-sm text-slate-500 mt-0.5">Setujui pengajuan yang telah direview staff, lalu cairkan dana secara manual</p>
         </div>
 
         {/* Tabs */}
@@ -257,7 +340,7 @@ export default function AdminApprovals() {
           </Table>
         </Card>
 
-        {/* Detail Modal */}
+        {/* ── Detail Modal ── */}
         <Modal isOpen={!!selected && !disburseOpen} onClose={() => setSelected(null)} title="Final Approval" size="md">
           {selected && (
             <>
@@ -276,11 +359,11 @@ export default function AdminApprovals() {
                   <div className="mb-4 p-3 bg-amber-50 rounded-xl border border-amber-200">
                     <div className="flex items-center gap-2 mb-1">
                       <AlertTriangle size={14} className="text-amber-600" />
-                      <p className="text-xs font-700 text-amber-700">Revisi Limit oleh Staff</p>
+                      <p className="text-xs font-700 text-amber-700">Revisi Nilai oleh Staff</p>
                     </div>
                     <p className="text-xs text-amber-600">{selected.revision_note || selected.staff_notes}</p>
                     <div className="flex items-center gap-3 mt-2">
-                      <span className="text-xs text-slate-500 line-through">{formatIDR(selected.amount || selected.loan_amount)}</span>
+                      <span className="text-xs text-slate-500 line-through">{formatIDR(isLoan ? selected.amount : selected.loan_amount)}</span>
                       <span className="text-sm font-800 text-amber-800">→ {formatIDR(selected.suggested_amount)}</span>
                     </div>
                   </div>
@@ -288,18 +371,18 @@ export default function AdminApprovals() {
 
                 <div className="mb-5">
                   <InfoRow label={isLoan ? 'Jumlah Diajukan' : 'Nilai Gadai'} value={formatIDR(isLoan ? selected.amount : selected.loan_amount)} />
-                  {selected.suggested_amount && <InfoRow label="Limit Disarankan Staff" value={<span className="text-amber-700 font-800">{formatIDR(selected.suggested_amount)}</span>} />}
+                  {selected.suggested_amount && <InfoRow label="Nilai Disetujui Staff" value={<span className="text-amber-700 font-800">{formatIDR(selected.suggested_amount)}</span>} />}
                   {isLoan && <InfoRow label="Tenor" value={`${selected.tenor} bulan`} />}
                   {isLoan && <InfoRow label="Bunga (5%/bln)" value={formatIDR((selected.amount || 0) * 0.05 * (selected.tenor || 1))} />}
-                  <InfoRow label="Dana Bersih" value={<span className="text-emerald-700 font-800">{formatIDR(selected.net_disbursement || selected.amount)}</span>} />
+                  <InfoRow label="Dana Bersih" value={<span className="text-emerald-700 font-800">{formatIDR(selected.net_disbursement || (isLoan ? selected.amount : selected.loan_amount))}</span>} />
                   <InfoRow label="Rekening Tujuan" value={`${selected.bank_code} · ${selected.account_number} (${selected.account_name || '-'})`} />
                   {!isLoan && <InfoRow label="Nama Barang" value={selected.item_name || '-'} />}
+                  {!isLoan && <InfoRow label="Alamat Penjemputan" value={selected.pickup_address || '-'} />}
                   <InfoRow label="Tanggal Pengajuan" value={formatDateTime(selected.created_at)} />
                 </div>
 
                 {/* Documents */}
                 {(() => {
-                  // Gadai only stores item_photo_url; loan stores KYC docs
                   const docs = !isLoan
                     ? [{ label: 'Foto Barang', url: selected.item_photo_url }]
                     : [
@@ -357,19 +440,24 @@ export default function AdminApprovals() {
           )}
         </Modal>
 
-        {/* Disburse Modal */}
-        <Modal isOpen={disburseOpen} onClose={() => setDisburseOpen(false)} title="Konfirmasi Pencairan Dana" size="sm">
+        {/* ── Manual Disburse Modal ── */}
+        <Modal isOpen={disburseOpen} onClose={() => setDisburseOpen(false)} title="Konfirmasi Pencairan Dana Manual" size="sm">
           {selected && (
             <>
               <ModalBody>
-                <div className="bg-emerald-50 rounded-xl p-4 mb-5">
-                  <p className="text-xs text-emerald-600 mb-1">Penerima</p>
-                  <p className="font-800 text-emerald-900">{selected.profiles?.full_name}</p>
-                  <p className="text-sm text-emerald-700 mt-1">{selected.bank_code} · {selected.account_number}</p>
-                  <p className="text-xs text-emerald-600">{selected.account_name}</p>
+                {/* Bank info banner */}
+                <div className="flex items-start gap-3 p-3.5 bg-emerald-50 rounded-xl border border-emerald-100 mb-5">
+                  <Building2 size={16} className="text-emerald-600 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="text-xs text-emerald-600 font-600 mb-0.5">Transfer ke Rekening Nasabah</p>
+                    <p className="font-800 text-emerald-900 text-sm">{selected.profiles?.full_name}</p>
+                    <p className="text-sm text-emerald-700 mt-0.5">{selected.bank_code} · {selected.account_number}</p>
+                    <p className="text-xs text-emerald-600">{selected.account_name}</p>
+                  </div>
                 </div>
 
                 <div className="space-y-4">
+                  {/* Amount */}
                   <div>
                     <label className="label-field">Jumlah yang Dicairkan (Rp) <span className="text-red-400">*</span></label>
                     <input type="number" className="input-field" value={disburseAmount}
@@ -377,26 +465,60 @@ export default function AdminApprovals() {
                       placeholder="Masukkan jumlah pencairan" />
                     {selected.suggested_amount && (
                       <p className="text-xs text-amber-600 mt-1">
-                        Limit revisi staff: {formatIDR(selected.suggested_amount)}
+                        Nilai disetujui staff: {formatIDR(selected.suggested_amount)}
                       </p>
                     )}
                     {!selected.suggested_amount && selected.net_disbursement && (
                       <p className="text-xs text-slate-400 mt-1">
-                        Dana bersih dihitung: {formatIDR(selected.net_disbursement)}
+                        Dana bersih nasabah: {formatIDR(selected.net_disbursement)}
                       </p>
                     )}
                   </div>
+
+                  {/* Ref number */}
                   <div>
-                    <label className="label-field">Nomor Referensi Transfer (opsional)</label>
+                    <label className="label-field">Nomor Referensi Transfer <span className="text-red-400">*</span></label>
                     <input className="input-field" value={disburseRef}
                       onChange={e => setDisburseRef(e.target.value)}
-                      placeholder="Ref transfer bank / Midtrans disbursement ID" />
+                      placeholder="Cth: TRF20260522-XXXXXX" />
+                    <p className="text-xs text-slate-400 mt-1">Nomor bukti transfer dari sistem perbankan Anda</p>
+                  </div>
+
+                  {/* Proof of transfer image */}
+                  <div>
+                    <label className="label-field">Bukti Transfer (Screenshot) <span className="text-slate-400 font-400">— opsional</span></label>
+                    {proofPreview ? (
+                      <div className="relative rounded-xl overflow-hidden border border-emerald-200">
+                        <img src={proofPreview} alt="Bukti transfer" className="w-full max-h-44 object-cover" />
+                        <button type="button"
+                          onClick={() => { setProofFile(null); setProofPreview(null) }}
+                          className="absolute top-2 right-2 w-6 h-6 bg-slate-900/70 rounded-full flex items-center justify-center text-white hover:bg-slate-900 transition-colors">
+                          <X size={12} />
+                        </button>
+                        <div className="absolute bottom-2 left-2 bg-emerald-600 text-white text-xs px-2 py-0.5 rounded-full">
+                          Siap diupload
+                        </div>
+                      </div>
+                    ) : (
+                      <label htmlFor="proof-upload"
+                        className="flex flex-col items-center gap-2 p-5 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/50 cursor-pointer hover:border-emerald-300 hover:bg-emerald-50/30 transition-all">
+                        <ImagePlus size={20} className="text-slate-400" />
+                        <p className="text-xs text-slate-500 text-center">
+                          Upload screenshot bukti transfer<br />
+                          <span className="text-slate-400">JPG, PNG, WebP · Maks 5MB</span>
+                        </p>
+                        <input id="proof-upload" type="file" className="hidden"
+                          accept="image/jpeg,image/png,image/webp"
+                          onChange={e => handleProofFile(e.target.files[0])} />
+                      </label>
+                    )}
                   </div>
                 </div>
 
                 <div className="mt-4 p-3 bg-amber-50 rounded-xl border border-amber-200">
                   <p className="text-xs text-amber-700 font-600">
-                    ⚠ Pastikan transfer sudah dilakukan ke rekening di atas sebelum menekan tombol konfirmasi. Tindakan ini tidak bisa dibatalkan.
+                    ⚠ Pastikan transfer bank sudah berhasil dilakukan sebelum mengkonfirmasi. Tindakan ini tidak dapat dibatalkan dan akan langsung memberi tahu nasabah.
+                    {!isLoan && ' Status gadai akan berubah menjadi "Menunggu Penjemputan".'}
                   </p>
                 </div>
               </ModalBody>
