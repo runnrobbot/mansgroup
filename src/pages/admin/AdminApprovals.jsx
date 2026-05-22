@@ -233,7 +233,7 @@ export default function AdminApprovals() {
                     <p className="font-600 text-sm text-slate-900">{item.profiles?.full_name || '-'}</p>
                     <p className="text-xs text-slate-400">{item.profiles?.email}</p>
                   </Td>
-                  <Td className="font-700">{formatIDR(item.amount || item.loan_amount)}</Td>
+                  <Td className="font-700">{formatIDR(isLoan ? item.amount : item.loan_amount)}</Td>
                   <Td>
                     {item.suggested_amount ? (
                       <span className="text-xs font-700 text-amber-700 bg-amber-50 px-2 py-1 rounded-lg">
@@ -287,7 +287,7 @@ export default function AdminApprovals() {
                 )}
 
                 <div className="mb-5">
-                  <InfoRow label={isLoan ? 'Jumlah Diajukan' : 'Nilai Gadai'} value={formatIDR(selected.amount || selected.loan_amount)} />
+                  <InfoRow label={isLoan ? 'Jumlah Diajukan' : 'Nilai Gadai'} value={formatIDR(isLoan ? selected.amount : selected.loan_amount)} />
                   {selected.suggested_amount && <InfoRow label="Limit Disarankan Staff" value={<span className="text-amber-700 font-800">{formatIDR(selected.suggested_amount)}</span>} />}
                   {isLoan && <InfoRow label="Tenor" value={`${selected.tenor} bulan`} />}
                   {isLoan && <InfoRow label="Bunga (5%/bln)" value={formatIDR((selected.amount || 0) * 0.05 * (selected.tenor || 1))} />}
@@ -299,21 +299,24 @@ export default function AdminApprovals() {
 
                 {/* Documents */}
                 {(() => {
-                  const docs = [
-                    { label: 'Foto KTP', url: selected.ktp_photo_url },
-                    { label: 'Selfie + KTP', url: selected.selfie_ktp_url },
-                    { label: 'Foto Wajah', url: selected.selfie_url },
-                    { label: 'Kartu Keluarga', url: selected.kk_url },
-                    { label: 'KTM', url: selected.ktm_url },
-                    { label: 'Bukti PDDIKTI', url: selected.pddikti_url },
-                    !isLoan && { label: 'Foto Barang', url: selected.item_photo_url },
-                  ].filter(d => d && d.url)
-                  if (!docs.length) return null
+                  // Gadai only stores item_photo_url; loan stores KYC docs
+                  const docs = !isLoan
+                    ? [{ label: 'Foto Barang', url: selected.item_photo_url }]
+                    : [
+                        { label: 'Foto KTP', url: selected.ktp_photo_url },
+                        { label: 'Selfie + KTP', url: selected.selfie_ktp_url },
+                        { label: 'Foto Wajah', url: selected.selfie_url },
+                        { label: 'Kartu Keluarga', url: selected.kk_url },
+                        { label: 'KTM', url: selected.ktm_url },
+                        { label: 'Bukti PDDIKTI', url: selected.pddikti_url },
+                      ]
+                  const filtered = docs.filter(d => d && d.url)
+                  if (!filtered.length) return null
                   return (
                     <div className="mb-4">
-                      <p className="text-xs text-slate-400 mb-2 font-700 uppercase tracking-wider">Dokumen ({docs.length} file)</p>
+                      <p className="text-xs text-slate-400 mb-2 font-700 uppercase tracking-wider">Dokumen ({filtered.length} file)</p>
                       <div className="flex flex-wrap gap-2">
-                        {docs.map(({ label, url }) => (
+                        {filtered.map(({ label, url }) => (
                           <a key={label} href={url} target="_blank" rel="noopener noreferrer"
                             className="flex items-center gap-1.5 text-xs font-600 text-blue-600 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg border border-blue-100 transition-colors">
                             <ExternalLink size={11} />{label}

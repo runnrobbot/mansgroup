@@ -129,12 +129,12 @@ export default function StaffReviewQueue() {
     const amt = Number(revisionAmount)
     if (!amt || amt <= 0) { toast.error('Masukkan jumlah yang disarankan'); return }
     if (!revisionNote.trim()) { toast.error('Tambahkan catatan revisi'); return }
-    const original = selected.amount || selected.loan_amount
+    const original = isGadai ? selected.loan_amount : selected.amount
     if (amt >= original) { toast.error('Jumlah revisi harus lebih kecil dari pengajuan asli'); return }
 
     const ok = await confirm({
       title: 'Revisi & Teruskan ke Admin?',
-      message: `Pengajuan asli ${formatIDR(original)} akan direvisi menjadi ${formatIDR(amt)}. Admin akan melihat catatan revisi ini dan memutuskan final approval.`,
+      message: `Pengajuan asli ${formatIDR(original)} akan direvisi menjadi ${formatIDR(amt)}. Admin akan melihat catatan revisi ini dan memutuskan final approval. ${isGadai ? '(Nilai gadai)' : '(Nilai pinjaman)'}`,
       variant: 'warning',
       confirmLabel: 'Ya, Revisi & Teruskan',
     })
@@ -236,7 +236,7 @@ export default function StaffReviewQueue() {
                     <p className="font-600 text-sm text-slate-900">{item.profiles?.full_name || item.full_name || '-'}</p>
                     <p className="text-xs text-slate-400">{item.profiles?.email || ''}</p>
                   </Td>
-                  <Td className="font-700">{isLoan || isGadai ? formatIDR(item.amount || item.loan_amount) : `${[item.ktp_photo_url, item.selfie_ktp_url, item.kk_url, item.ktm_url].filter(Boolean).length} file`}</Td>
+                  <Td className="font-700">{isLoan ? formatIDR(item.amount) : isGadai ? formatIDR(item.loan_amount) : `${[item.ktp_photo_url, item.selfie_ktp_url, item.kk_url, item.ktm_url].filter(Boolean).length} file`}</Td>
                   {isLoan && <Td className="text-xs">{item.tenor} bulan</Td>}
                   {isGadai && <Td className="text-xs">{item.item_name || '-'}</Td>}
                   <Td className="text-xs text-slate-400">{formatDate(item.created_at)}</Td>
@@ -269,50 +269,64 @@ export default function StaffReviewQueue() {
                       </div>
                     </div>
                     {(isLoan || isGadai) && (() => {
-                      const { score, category } = calculateCreditScore?.(selected) || { score: 0, category: 'poor' }
+                      const { score, category } = calculateCreditScore?.({
+                        income: selected.income,
+                        loanAmount: selected.amount || selected.loan_amount,
+                        repaymentHistory: selected.repayment_history,
+                        hasOverdue: selected.has_overdue,
+                        loanCount: selected.loan_count,
+                      }) || { score: 0, category: 'poor' }
                       return <CreditBadge score={score} category={category} />
                     })()}
                   </div>
                 </div>
 
                 {/* Loan / Gadai Info */}
-                {(isLoan || isGadai) && (
-                  <div className="grid grid-cols-2 gap-3 mb-5 text-sm">
-                    {[
-                      { label: 'Jumlah Diajukan', value: <span className="font-800 text-slate-900">{formatIDR(selected.amount || selected.loan_amount)}</span> },
-                      isLoan && { label: 'Tenor', value: `${selected.tenor} bulan` },
-                      isGadai && { label: 'Barang', value: selected.item_name || '-' },
-                      { label: 'Bank', value: `${selected.bank_code || '-'} · ${selected.account_number || '-'}` },
-                      { label: 'Pekerjaan', value: selected.occupation || '-' },
-                      { label: 'Penghasilan', value: selected.income ? formatIDR(selected.income) : '-' },
-                      { label: 'NIK', value: selected.nik || '-' },
-                      { label: 'Tanggal Lahir', value: selected.birth_date || '-' },
-                    ].filter(Boolean).map(({ label, value }) => (
-                      <div key={label} className="p-3 bg-slate-50 rounded-lg">
-                        <p className="text-xs text-slate-400 mb-0.5">{label}</p>
-                        <p className="font-600 text-slate-800">{value}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                {(isLoan || isGadai) && (() => {
+                  // For gadai, personal data comes from the profiles join (no snapshot cols on gadai_applications)
+                  // For loans, it comes from the record snapshot directly
+                  const person = isGadai ? (selected.profiles || {}) : selected
+                  return (
+                    <div className="grid grid-cols-2 gap-3 mb-5 text-sm">
+                      {[
+                        { label: 'Jumlah Diajukan', value: <span className="font-800 text-slate-900">{formatIDR(isGadai ? selected.loan_amount : selected.amount)}</span> },
+                        isLoan && { label: 'Tenor', value: `${selected.tenor} bulan` },
+                        isGadai && { label: 'Barang', value: selected.item_name || '-' },
+                        { label: 'Bank', value: `${selected.bank_code || '-'} · ${selected.account_number || '-'}` },
+                        { label: 'Pekerjaan', value: person.occupation || '-' },
+                        { label: 'Penghasilan', value: person.income ? formatIDR(person.income) : '-' },
+                        { label: 'NIK', value: person.nik || '-' },
+                        { label: 'Tanggal Lahir', value: person.birth_date || '-' },
+                      ].filter(Boolean).map(({ label, value }) => (
+                        <div key={label} className="p-3 bg-slate-50 rounded-lg">
+                          <p className="text-xs text-slate-400 mb-0.5">{label}</p>
+                          <p className="font-600 text-slate-800">{value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()}
 
                 {/* KYC Docs */}
                 {(() => {
-                  const docs = [
-                    { label: 'Foto KTP', url: selected.ktp_photo_url },
-                    { label: 'Selfie + KTP', url: selected.selfie_ktp_url },
-                    { label: 'Foto Wajah', url: selected.selfie_url },
-                    { label: 'Kartu Keluarga', url: selected.kk_url },
-                    { label: 'KTM', url: selected.ktm_url },
-                    { label: 'Bukti PDDIKTI', url: selected.pddikti_url },
-                    isGadai && { label: 'Foto Barang', url: selected.item_photo_url },
-                  ].filter(d => d && d.url)
-                  if (!docs.length) return null
+                  // Gadai only stores item_photo_url; loan stores KYC docs
+                  const docs = isGadai
+                    ? [{ label: 'Foto Barang', url: selected.item_photo_url }]
+                    : [
+                        { label: 'Foto KTP', url: selected.ktp_photo_url },
+                        { label: 'Selfie + KTP', url: selected.selfie_ktp_url },
+                        { label: 'Foto Wajah', url: selected.selfie_url },
+                        { label: 'Kartu Keluarga', url: selected.kk_url },
+                        { label: 'KTM', url: selected.ktm_url },
+                        { label: 'Bukti PDDIKTI', url: selected.pddikti_url },
+                      ]
+                  const filtered = docs.filter(d => d && d.url)
+                  if (!filtered.length) return null
                   return (
                     <div className="mb-5">
-                      <p className="text-xs text-slate-400 mb-2 font-700 uppercase tracking-wider">Dokumen ({docs.length} file)</p>
+                      <p className="text-xs text-slate-400 mb-2 font-700 uppercase tracking-wider">Dokumen ({filtered.length} file)</p>
                       <div className="flex flex-wrap gap-2">
-                        {docs.map(({ label, url }) => (
+                        {filtered.map(({ label, url }) => (
                           <a key={label} href={url} target="_blank" rel="noopener noreferrer"
                             className="flex items-center gap-1.5 text-xs font-600 text-blue-600 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg border border-blue-100 transition-colors">
                             <ExternalLink size={11} />{label}
@@ -360,7 +374,7 @@ export default function StaffReviewQueue() {
                           <label className="label-field">Jumlah yang Disarankan (Rp)</label>
                           <input type="number" className="input-field" value={revisionAmount}
                             onChange={e => setRevisionAmount(e.target.value)}
-                            placeholder={`Maks diajukan: ${formatIDR(selected.amount || selected.loan_amount)}`} />
+                            placeholder={`Maks diajukan: ${formatIDR(isGadai ? selected.loan_amount : selected.amount)}`} />
                         </div>
                         <div>
                           <label className="label-field">Catatan Revisi <span className="text-red-400">*</span></label>

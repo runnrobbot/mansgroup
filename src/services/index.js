@@ -149,7 +149,7 @@ export const loanService = {
   async listAll({ page = 1, limit = 20, status = '', search = '' } = {}) {
     let query = supabase
       .from('loans')
-      .select('id, ref_number, amount, approved_amount, tenor, status, bank_code, account_number, disbursed_at, approved_at, created_at, profiles!loans_user_id_fkey(full_name, email)', { count: 'exact' })
+      .select('*, profiles!loans_user_id_fkey(full_name, email, phone)', { count: 'exact' })
       .range((page - 1) * limit, page * limit - 1)
       .order('created_at', { ascending: false })
 
@@ -218,7 +218,10 @@ export const gadaiService = {
   async listAll({ page = 1, limit = 20, status = '' } = {}) {
     let query = supabase
       .from('gadai_applications')
-      .select('*, profiles!gadai_applications_user_id_fkey(full_name, email)', { count: 'exact' })
+      .select(
+        '*, profiles!gadai_applications_user_id_fkey(full_name, email, phone, nik, birth_date, occupation, income, address)',
+        { count: 'exact' }
+      )
       .range((page - 1) * limit, page * limit - 1)
       .order('created_at', { ascending: false })
 
