@@ -7,6 +7,7 @@ import { Table, TableHead, Th, TableBody, Tr, Td, EmptyRow } from '../../compone
 import { useAuth } from '../../contexts/AuthContext'
 import { loanService } from '../../services'
 import { supabase } from '../../lib/supabase'
+import { useDebouncedReload } from '../../lib/useDebouncedReload'
 import { formatIDR, formatDate, getEffectiveAmount, isRevised } from '../../lib/utils'
 import { Plus, Eye, Clock, Lock, ArrowRight, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -17,36 +18,47 @@ export default function MyLoansPage() {
   const [loans, setLoans] = useState([])
   const [loading, setLoading] = useState(true)
 
-  const loadingRef = useRef(false)
+  // Guard untuk setState setelah unmount
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
   const load = useCallback(async () => {
-    if (!profile || loadingRef.current) return
-    loadingRef.current = true
-    try {
-      const { data } = await loanService.getByUserId(profile.id)
-      setLoans(data || [])
-    } finally {
-      loadingRef.current = false
-      setLoading(false)
-    }
+    if (!profile) return
+    const { data } = await loanService.getByUserId(profile.id)
+    if (!mountedRef.current) return
+    setLoans(data || [])
+    setLoading(false)
   }, [profile])
 
   useEffect(() => { load() }, [load])
 
-  // Realtime — sync ketika loan status berubah (misal setelah pembayaran lunas)
+  const scheduleReload = useDebouncedReload(load, 250)
+
+  // Realtime — sync ketika loan ATAU payment user berubah.
+  // Kalau hanya subscribe ke loans (cara lama), tidak terdeteksi saat payment
+  // baru di-INSERT (sebelum recompute selesai update loan).
   useEffect(() => {
     if (!profile) return
     const channel = supabase
       .channel(`myloans-${profile.id}`)
       .on('postgres_changes', {
-        event: 'UPDATE',
+        event: '*',
         schema: 'public',
         table: 'loans',
         filter: `user_id=eq.${profile.id}`,
-      }, () => { load() })
+      }, () => { scheduleReload() })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'payments',
+        filter: `user_id=eq.${profile.id}`,
+      }, () => { scheduleReload() })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
-  }, [profile, load])
+  }, [profile, scheduleReload])
 
   // ── Status logic ─────────────────────────────────────────────────────────
   const isProfileComplete = !!(
@@ -55,18 +67,15 @@ export default function MyLoansPage() {
   )
   const isKycVerified = profile?.kyc_status === 'verified'
 
-  // Pinjaman yang sedang aktif / dalam proses
   const activeLoan = loans.find(l =>
     ['disbursed', 'overdue'].includes(l.status)
   )
-  // Semua status yang belum final (termasuk approved dan revision)
   const pendingLoan = loans.find(l =>
     ['pending', 'review', 'revision', 'approved'].includes(l.status)
   )
 
   // Tombol "Ajukan Baru" — 4 kondisi
   const getApplyButton = () => {
-    // Kondisi 1: profil belum lengkap / KYC belum verified
     if (!isProfileComplete || !isKycVerified) {
       return (
         <button
@@ -85,7 +94,6 @@ export default function MyLoansPage() {
       )
     }
 
-    // Kondisi 2: ada pinjaman aktif (disbursed/overdue) → tidak boleh ajukan baru
     if (activeLoan) {
       return (
         <button
@@ -99,7 +107,6 @@ export default function MyLoansPage() {
       )
     }
 
-    // Kondisi 3: ada pengajuan yang masih pending/review/approved → arahkan ke pengajuan itu
     if (pendingLoan) {
       return (
         <Link
@@ -111,7 +118,6 @@ export default function MyLoansPage() {
       )
     }
 
-    // Kondisi 4: bebas ajukan → tombol normal
     return (
       <Link
         to="/dashboard/loans/apply"
@@ -122,7 +128,6 @@ export default function MyLoansPage() {
     )
   }
 
-  // ── Info banner ───────────────────────────────────────────────────────────
   const getBanner = () => {
     if (!isProfileComplete) {
       return (
@@ -180,9 +185,8 @@ export default function MyLoansPage() {
       const wasRevised = isRevised(pendingLoan, true)
       const isApproved = pendingLoan.status === 'approved'
       return (
-        <div className={`flex items-start gap-3 p-4 rounded-2xl ${
-          isApproved ? 'bg-emerald-50 border border-emerald-100' : 'bg-amber-50 border border-amber-100'
-        }`}>
+        <div className={`flex items-start gap-3 p-4 rounded-2xl ${isApproved ? 'bg-emerald-50 border border-emerald-100' : 'bg-amber-50 border border-amber-100'
+          }`}>
           <Clock size={16} className={`flex-shrink-0 mt-0.5 ${isApproved ? 'text-emerald-500' : 'text-amber-500'}`} />
           <div className="flex-1">
             <p className={`text-sm font-700 ${isApproved ? 'text-emerald-800' : 'text-amber-800'}`}>
@@ -201,9 +205,8 @@ export default function MyLoansPage() {
               )}
             </p>
           </div>
-          <Link to={`/dashboard/loans/${pendingLoan.id}`} className={`ml-auto text-xs font-600 flex items-center gap-1 whitespace-nowrap ${
-            isApproved ? 'text-emerald-700 hover:text-emerald-800' : 'text-amber-600 hover:text-amber-700'
-          }`}>
+          <Link to={`/dashboard/loans/${pendingLoan.id}`} className={`ml-auto text-xs font-600 flex items-center gap-1 whitespace-nowrap ${isApproved ? 'text-emerald-700 hover:text-emerald-800' : 'text-amber-600 hover:text-amber-700'
+            }`}>
             Lihat <ArrowRight size={12} />
           </Link>
         </div>

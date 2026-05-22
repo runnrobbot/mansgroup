@@ -8,13 +8,20 @@
 //
 // Deploy:
 //   supabase functions deploy midtrans-webhook --no-verify-jwt
-//   (no-verify-jwt karena Midtrans tidak kirim JWT)
 //
-// Set secrets (sama dengan midtrans-snap):
+// Set secrets:
 //   supabase secrets set MIDTRANS_SERVER_KEY="Mid-server-XXXXXX"
 //
-// Cara verify signature:
-//   sha512(order_id + status_code + gross_amount + server_key)
+// ── BUG FIX HISTORY ─────────────────────────────────────────────────────────
+// 1. Webhook lama `.select('id, user_id, loan_id, amount')` tidak include
+//    gadai_id → gadai tidak pernah ter-sync. SEKARANG include gadai_id.
+// 2. Recompute pakai effective_total_repayment (hormati approved_amount /
+//    suggested_amount yang sudah di-rekalkulasi admin), bukan blind pakai
+//    field total_repayment.
+// 3. Idempotent — webhook bisa dipanggil berkali-kali tanpa double-count
+//    karena selalu recompute dari sum(payments) terbaru.
+// 4. Skip update kalau remaining sama (mengurangi realtime echo yang
+//    memicu reload client tanpa perlu).
 
 import { serve } from 'https://deno.land/std@0.177.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
@@ -22,10 +29,6 @@ import { corsHeaders } from '../_shared/cors.ts'
 
 // Map Midtrans transaction_status → status di tabel payments
 function mapStatus(midtransStatus: string, fraudStatus?: string): string {
-  // settlement = sudah diterima dananya (final)
-  // capture + fraud accept = settled untuk kartu kredit
-  // pending = nunggu user bayar (VA, e-wallet)
-  // deny / cancel / expire / failure = gagal
   if (midtransStatus === 'capture') {
     return fraudStatus === 'accept' ? 'settlement' : 'verification'
   }
@@ -45,6 +48,58 @@ async function sha512(input: string): Promise<string> {
   return Array.from(new Uint8Array(hash))
     .map((b) => b.toString(16).padStart(2, '0'))
     .join('')
+}
+
+const CONFIRMED_STATUSES = ['settlement', 'capture', 'confirmed']
+
+/**
+ * Hitung effective total_repayment: hormati revisi staff (suggested_amount)
+ * yang belum di-approve admin (approved_amount). Persis sama logikanya dengan
+ * getEffectiveLoanNumbers di client (src/lib/utils.js) untuk konsistensi.
+ *
+ * Untuk loan:
+ *   - Kalau total_repayment di DB sudah > 0 → pakai itu (sudah di-rekalkulasi admin)
+ *   - Kalau approved_amount/suggested_amount berbeda dari amount asli dan total_repayment
+ *     belum disesuaikan, hitung ulang: principal*(1+0.05*tenor)
+ */
+function effectiveLoanTotalRepayment(loan: Record<string, unknown>): number {
+  const amount = Number(loan.amount) || 0
+  const approved = loan.approved_amount != null ? Number(loan.approved_amount) : null
+  const suggested = loan.suggested_amount != null ? Number(loan.suggested_amount) : null
+  const effective = approved ?? suggested ?? amount
+  const tenor = Number(loan.tenor) || 0
+  const dbTotal = Number(loan.total_repayment) || 0
+
+  // Kalau effective = amount asli (tidak direvisi), pakai dbTotal langsung
+  if (effective === amount) return dbTotal
+
+  // Recalc: bunga 5% per bulan flat
+  const interestRate = 0.05
+  const recalc = effective + effective * interestRate * tenor
+
+  // Kalau dbTotal sudah disesuaikan ke effective (admin sudah approve & rekalkulasi),
+  // dbTotal ≈ recalc. Toleransi 2 untuk pembulatan.
+  if (Math.abs(dbTotal - recalc) < 2) return dbTotal
+
+  // Pakai recalc kalau dbTotal belum disesuaikan
+  return Math.ceil(recalc)
+}
+
+function effectiveGadaiTotalRepayment(gadai: Record<string, unknown>): number {
+  const loanAmount = Number(gadai.loan_amount) || 0
+  const approved = gadai.approved_amount != null ? Number(gadai.approved_amount) : null
+  const suggested = gadai.suggested_amount != null ? Number(gadai.suggested_amount) : null
+  const effective = approved ?? suggested ?? loanAmount
+  const dbTotal = Number(gadai.total_repayment) || 0
+
+  if (effective === loanAmount) return dbTotal
+
+  // Gadai interest 10% one-time (sesuai MANSGADAI_CONFIG)
+  const interestRate = 0.10
+  const recalc = effective + effective * interestRate
+
+  if (Math.abs(dbTotal - recalc) < 2) return dbTotal
+  return Math.ceil(recalc)
 }
 
 serve(async (req) => {
@@ -80,7 +135,7 @@ serve(async (req) => {
       fraud_status,
     } = body
 
-    // 1. Verifikasi signature — pastikan request memang dari Midtrans
+    // 1. Verify signature
     const expected = await sha512(`${order_id}${status_code}${gross_amount}${serverKey}`)
     if (expected !== signature_key) {
       console.error('Invalid signature for order:', order_id)
@@ -90,10 +145,11 @@ serve(async (req) => {
       })
     }
 
-    // 2. Update payment record di Supabase
     const supabase = createClient(supabaseUrl, serviceRoleKey)
     const newStatus = mapStatus(transaction_status, fraud_status)
 
+    // 2. Update payment record — IMPORTANT: include gadai_id dalam .select()
+    // (bug lama: gadai_id tidak ada di select → gadai tidak pernah ter-sync)
     const { data: updated, error } = await supabase
       .from('payments')
       .update({
@@ -104,7 +160,7 @@ serve(async (req) => {
         updated_at: new Date().toISOString(),
       })
       .eq('midtrans_order_id', order_id)
-      .select('id, user_id, loan_id, amount')
+      .select('id, user_id, loan_id, gadai_id, amount')
       .single()
 
     if (error) {
@@ -115,12 +171,12 @@ serve(async (req) => {
       })
     }
 
-    // 3. Kalau settled, optionally update loan remaining_amount + send notification
-    if (['settlement'].includes(newStatus) && updated?.loan_id) {
-      // Recompute remaining: total_repayment - sum(confirmed payments)
+    // 3. Kalau settled, recompute remaining loan/gadai. IDEMPOTEN: tidak pakai
+    // delta paidAmount; selalu re-sum dari payments table.
+    if (newStatus === 'settlement' && updated?.loan_id) {
       const { data: loan } = await supabase
         .from('loans')
-        .select('total_repayment, remaining_amount, status')
+        .select('*')
         .eq('id', updated.loan_id)
         .single()
 
@@ -129,24 +185,34 @@ serve(async (req) => {
           .from('payments')
           .select('amount')
           .eq('loan_id', updated.loan_id)
-          .in('status', ['settlement', 'capture', 'confirmed'])
+          .in('status', CONFIRMED_STATUSES)
 
         const totalPaid = (confirmedPayments || []).reduce(
-          (s: number, p: { amount: number }) => s + (p.amount || 0),
+          (s: number, p: { amount: number }) => s + (Number(p.amount) || 0),
           0,
         )
-        const newRemaining = Math.max(0, (loan.total_repayment || 0) - totalPaid)
+        const totalRepayment = effectiveLoanTotalRepayment(loan)
+        const newRemaining = Math.max(0, totalRepayment - totalPaid)
+        const currentRemaining = Number(loan.remaining_amount) || 0
 
-        const loanUpdates: Record<string, unknown> = { remaining_amount: newRemaining }
-        if (newRemaining === 0) {
-          loanUpdates.status = 'completed'
-          loanUpdates.completed_at = new Date().toISOString()
+        // Skip kalau tidak ada perubahan — hindari realtime echo
+        const willUpdateRemaining = currentRemaining !== newRemaining
+        const willCompleteNow = newRemaining === 0 && totalRepayment > 0
+
+        if (willUpdateRemaining || willCompleteNow) {
+          const loanUpdates: Record<string, unknown> = {
+            remaining_amount: newRemaining,
+            updated_at: new Date().toISOString(),
+          }
+          if (willCompleteNow) {
+            loanUpdates.status = 'completed'
+            loanUpdates.completed_at = new Date().toISOString()
+          }
+          await supabase.from('loans').update(loanUpdates).eq('id', updated.loan_id)
         }
-
-        await supabase.from('loans').update(loanUpdates).eq('id', updated.loan_id)
       }
 
-      // Send notification ke user
+      // Send notification
       if (updated.user_id) {
         await supabase.from('notifications').insert({
           user_id: updated.user_id,
@@ -159,28 +225,29 @@ serve(async (req) => {
       }
     }
 
-    // 4. Kalau pembayaran gadai settled, update gadai status
-    if (['settlement'].includes(newStatus) && updated?.gadai_id) {
+    // 4. Gadai settled → update status kalau lunas
+    if (newStatus === 'settlement' && updated?.gadai_id) {
       const { data: gadai } = await supabase
         .from('gadai_applications')
-        .select('total_repayment, status')
+        .select('*')
         .eq('id', updated.gadai_id)
         .single()
 
-      if (gadai && gadai.status !== 'completed') {
+      if (gadai && !['completed', 'forfeited', 'rejected'].includes(gadai.status)) {
         const { data: confirmedGadaiPayments } = await supabase
           .from('payments')
           .select('amount')
           .eq('gadai_id', updated.gadai_id)
-          .in('status', ['settlement', 'capture', 'confirmed'])
+          .in('status', CONFIRMED_STATUSES)
 
         const totalPaidGadai = (confirmedGadaiPayments || []).reduce(
-          (s: number, p: { amount: number }) => s + (p.amount || 0),
+          (s: number, p: { amount: number }) => s + (Number(p.amount) || 0),
           0,
         )
-        const gadaiRemaining = Math.max(0, (gadai.total_repayment || 0) - totalPaidGadai)
+        const totalRepaymentGadai = effectiveGadaiTotalRepayment(gadai)
+        const gadaiRemaining = Math.max(0, totalRepaymentGadai - totalPaidGadai)
 
-        if (gadaiRemaining === 0) {
+        if (gadaiRemaining === 0 && totalRepaymentGadai > 0) {
           await supabase
             .from('gadai_applications')
             .update({ status: 'completed', updated_at: new Date().toISOString() })
@@ -188,7 +255,7 @@ serve(async (req) => {
         }
       }
 
-      // Send notifikasi gadai
+      // Send notifikasi
       if (updated.user_id) {
         await supabase.from('notifications').insert({
           user_id: updated.user_id,

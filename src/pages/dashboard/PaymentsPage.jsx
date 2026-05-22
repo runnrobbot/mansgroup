@@ -8,11 +8,13 @@ import { useConfirm } from '../../components/ui/ConfirmModal'
 import { useAuth } from '../../contexts/AuthContext'
 import { paymentService, loanService, midtransService } from '../../services'
 import { supabase } from '../../lib/supabase'
+import { recomputeLoanState } from '../../lib/paymentSync'
+import { useDebouncedReload } from '../../lib/useDebouncedReload'
 import {
   formatIDR, formatDate, generateRefNumber,
   getEffectiveLoanNumbers, isRevised,
 } from '../../lib/utils'
-import { CreditCard, Loader, RefreshCw } from 'lucide-react'
+import { CreditCard, Loader } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const STATUS_LABELS = {
@@ -52,66 +54,78 @@ export default function PaymentsPage() {
   const [amount, setAmount] = useState('')
   const [paying, setPaying] = useState(false)
 
-  // Guard agar tidak ada concurrent load() call (race condition)
-  const loadingRef = useRef(false)
+  // Track komponen masih mounted — guard untuk setState setelah unmount
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
   const load = useCallback(async () => {
-    if (!profile || loadingRef.current) return
-    loadingRef.current = true
-    try {
-      const [paymentsRes, loansRes] = await Promise.all([
-        paymentService.getByUserId(profile.id),
-        loanService.getByUserId(profile.id),
-      ])
-      setPayments(paymentsRes.data || [])
-      setActiveLoans((loansRes.data || []).filter(l => ['disbursed', 'overdue', 'completed'].includes(l.status)))
-    } finally {
-      loadingRef.current = false
-      setLoading(false)
-    }
+    if (!profile) return
+    const [paymentsRes, loansRes] = await Promise.all([
+      paymentService.getByUserId(profile.id),
+      loanService.getByUserId(profile.id),
+    ])
+    if (!mountedRef.current) return
+    setPayments(paymentsRes.data || [])
+    // Termasuk 'completed' supaya user masih bisa lihat history pelunasan saat sudah lunas.
+    // Tapi tombol "Bayar" otomatis ke-disable kalau remaining = 0.
+    setActiveLoans(
+      (loansRes.data || []).filter(l => ['disbursed', 'overdue', 'completed'].includes(l.status))
+    )
+    setLoading(false)
   }, [profile])
 
+  // Initial load
   useEffect(() => { load() }, [load])
 
-  // Realtime subscription — sync otomatis ketika payments atau loans berubah (misal dari webhook Midtrans)
+  // Realtime reload — debounced + queued (lihat useDebouncedReload.js)
+  const scheduleReload = useDebouncedReload(load, 250)
+
   useEffect(() => {
     if (!profile) return
-    const paymentsChannel = supabase
+    const channel = supabase
       .channel(`payments-user-${profile.id}`)
       .on('postgres_changes', {
         event: '*',
         schema: 'public',
         table: 'payments',
         filter: `user_id=eq.${profile.id}`,
-      }, () => { load() })
+      }, () => { scheduleReload() })
       .on('postgres_changes', {
         event: 'UPDATE',
         schema: 'public',
         table: 'loans',
         filter: `user_id=eq.${profile.id}`,
-      }, () => { load() })
+      }, () => { scheduleReload() })
       .subscribe()
 
-    return () => { supabase.removeChannel(paymentsChannel) }
-  }, [profile, load])
+    return () => { supabase.removeChannel(channel) }
+  }, [profile, scheduleReload])
 
-  // Pre-compute per-loan stats supaya kita bisa tampilkan sisa tagihan & default amount
+  // Pre-compute per-loan stats — SELALU pakai getEffectiveLoanNumbers supaya
+  // konsisten dengan revisi staff (approved_amount / suggested_amount).
   const loanStats = activeLoans.map(loan => {
     const eff = getEffectiveLoanNumbers(loan)
-    const loanPayments = payments.filter(p => p.loan_id === loan.id && CONFIRMED_STATUSES.includes(p.status))
-    const totalPaid = loanPayments.reduce((s, p) => s + (p.amount || 0), 0)
+    const loanPayments = payments.filter(
+      p => p.loan_id === loan.id && CONFIRMED_STATUSES.includes(p.status)
+    )
+    const totalPaid = loanPayments.reduce((s, p) => s + (Number(p.amount) || 0), 0)
     const remaining = Math.max(0, eff.totalRepayment - totalPaid)
-    const monthsPaid = Math.floor(totalPaid / eff.monthlyInstallment)
+    const monthsPaid = eff.monthlyInstallment > 0
+      ? Math.min(loan.tenor || 0, Math.floor(totalPaid / eff.monthlyInstallment))
+      : 0
     return {
       loan,
       eff,
       totalPaid,
       remaining,
       monthsPaid,
-      // Default nominal = cicilan/bulan, atau sisa tagihan kalau < cicilan/bulan
       defaultPay: Math.min(eff.monthlyInstallment, remaining),
     }
-  })
+  }).filter(s => s.loan.status !== 'completed' || s.remaining > 0)
+  // ↑ Sembunyikan loan yang sudah completed dan tidak ada sisa — tagihan hilang dari list
 
   const openPay = (stat) => {
     setSelectedLoan(stat)
@@ -141,7 +155,7 @@ export default function PaymentsPage() {
     setPaying(true)
 
     try {
-      // 1. Buat record payment di DB dulu (status: pending)
+      // 1. Buat record payment di DB (status: pending)
       const orderId = `PAY-${generateRefNumber()}`
       const { data: payment, error: createErr } = await paymentService.create({
         user_id: profile.id,
@@ -156,7 +170,7 @@ export default function PaymentsPage() {
         throw new Error(createErr?.message || 'Gagal membuat order pembayaran')
       }
 
-      // 2. Request Snap token dari Edge Function
+      // 2. Request Snap token
       const { token, error: tokenErr } = await midtransService.createSnapToken({
         orderId,
         grossAmount: nominal,
@@ -173,7 +187,6 @@ export default function PaymentsPage() {
       })
 
       if (tokenErr || !token) {
-        // Cleanup: tandai gagal supaya tidak orphan
         await paymentService.update(payment.id, {
           status: 'failed',
           notes: `Gagal mendapatkan token Midtrans: ${tokenErr?.message || 'unknown'}`,
@@ -189,21 +202,10 @@ export default function PaymentsPage() {
 
       window.snap.pay(token, {
         onSuccess: async (result) => {
-          // Update payment status dulu
-          await paymentService.update(payment.id, {
-            status: 'settlement',
-            midtrans_status: result.transaction_status,
-            midtrans_transaction_id: result.transaction_id,
-            midtrans_payment_type: result.payment_type,
-          })
-
-          // Langsung update sisa tagihan & status pinjaman (tidak tunggu webhook)
-          await syncLoanAfterPayment(selectedLoan.loan.id, nominal)
-
+          await finalizePayment(payment.id, 'settlement', result, selectedLoan.loan.id)
+          if (!mountedRef.current) return
           toast.success('Pembayaran berhasil! Terima kasih.', { duration: 5000 })
           setPayOpen(false)
-          // Reload setelah sedikit delay supaya DB sudah commit
-          setTimeout(() => load(), 500)
         },
         onPending: async (result) => {
           await paymentService.update(payment.id, {
@@ -212,70 +214,56 @@ export default function PaymentsPage() {
             midtrans_transaction_id: result.transaction_id,
             midtrans_payment_type: result.payment_type,
           })
+          if (!mountedRef.current) return
           toast('Pembayaran sedang diproses. Selesaikan sesuai instruksi yang diberikan.', { icon: '⏳', duration: 6000 })
           setPayOpen(false)
-          setTimeout(() => load(), 500)
+          scheduleReload()
         },
         onError: async (result) => {
           await paymentService.update(payment.id, {
             status: 'failed',
             midtrans_status: result?.status_message || 'error',
           })
+          if (!mountedRef.current) return
           toast.error('Pembayaran gagal. Silakan coba lagi.')
-          setTimeout(() => load(), 500)
+          scheduleReload()
         },
         onClose: () => {
-          // User tutup popup tanpa menyelesaikan — tetap pending
+          if (!mountedRef.current) return
           toast('Pembayaran belum diselesaikan. Kamu bisa melanjutkan dari riwayat pembayaran.', { icon: 'ℹ️' })
           setPayOpen(false)
-          setTimeout(() => load(), 500)
+          scheduleReload()
         },
       })
     } catch (err) {
       console.error('Payment error:', err)
-      toast.error(err.message || 'Terjadi kesalahan saat memproses pembayaran')
+      if (mountedRef.current) toast.error(err.message || 'Terjadi kesalahan saat memproses pembayaran')
     } finally {
-      setPaying(false)
+      if (mountedRef.current) setPaying(false)
     }
   }
 
   /**
-   * Sync sisa tagihan dan status pinjaman ke DB setelah pembayaran sukses.
-   * Ini adalah fallback agar UI langsung update tanpa menunggu webhook Midtrans.
-   * Webhook tetap berjalan sebagai double-confirm (idempotent).
+   * Finalize payment: update status di tabel payments lalu recompute loan state.
+   *
+   * Penting: recomputeLoanState() dipanggil SETELAH paymentService.update() commit,
+   * dan dia akan re-fetch payments dari DB (bukan delta) — jadi idempotent
+   * meski webhook server juga jalan paralel.
    */
-  const syncLoanAfterPayment = async (loanId, paidAmount) => {
-    try {
-      // Ambil data pinjaman + semua pembayaran yang sudah settled
-      const [loanRes, paymentsRes] = await Promise.all([
-        loanService.getById(loanId),
-        paymentService.getByLoanId(loanId),
-      ])
-      const loan = loanRes.data
-      if (!loan) return
-
-      const confirmedPayments = (paymentsRes.data || []).filter(
-        p => ['settlement', 'capture', 'confirmed'].includes(p.status)
-      )
-      const totalPaid = confirmedPayments.reduce((s, p) => s + (p.amount || 0), 0) + paidAmount
-      const totalRepayment = loan.total_repayment || 0
-      const newRemaining = Math.max(0, totalRepayment - totalPaid)
-
-      const updates = { remaining_amount: newRemaining }
-      if (newRemaining === 0) {
-        updates.status = 'completed'
-        updates.completed_at = new Date().toISOString()
-      }
-
-      const { error } = await supabase
-        .from('loans')
-        .update(updates)
-        .eq('id', loanId)
-
-      if (error) console.error('[syncLoanAfterPayment] error:', error)
-    } catch (err) {
-      console.error('[syncLoanAfterPayment] exception:', err)
+  const finalizePayment = async (paymentId, status, midtransResult, loanId) => {
+    await paymentService.update(paymentId, {
+      status,
+      midtrans_status: midtransResult.transaction_status,
+      midtrans_transaction_id: midtransResult.transaction_id,
+      midtrans_payment_type: midtransResult.payment_type,
+    })
+    if (loanId) {
+      // Recompute langsung — kalau gagal, webhook server akan retry
+      await recomputeLoanState(loanId)
     }
+    // Realtime subscription akan trigger reload otomatis dari UPDATE event,
+    // tapi schedule juga sebagai backup kalau realtime telat
+    scheduleReload()
   }
 
   // Resume payment yang masih pending
@@ -299,30 +287,33 @@ export default function PaymentsPage() {
       await midtransService.loadSnapScript()
       window.snap.pay(token, {
         onSuccess: async (result) => {
+          await finalizePayment(payment.id, 'settlement', result, payment.loan_id)
+          if (mountedRef.current) toast.success('Pembayaran berhasil!')
+        },
+        onPending: async (result) => {
           await paymentService.update(payment.id, {
-            status: 'settlement',
+            status: 'verification',
             midtrans_status: result.transaction_status,
             midtrans_transaction_id: result.transaction_id,
             midtrans_payment_type: result.payment_type,
           })
-          if (payment.loan_id) {
-            await syncLoanAfterPayment(payment.loan_id, payment.amount)
-          }
-          toast.success('Pembayaran berhasil!')
-          setTimeout(() => load(), 500)
+          if (mountedRef.current) toast('Pembayaran masih diproses', { icon: '⏳' })
+          scheduleReload()
         },
-        onPending: async () => { toast('Pembayaran masih diproses', { icon: '⏳' }); setTimeout(() => load(), 500) },
-        onError: async () => { toast.error('Pembayaran gagal'); setTimeout(() => load(), 500) },
-        onClose: () => { setTimeout(() => load(), 500) },
+        onError: async () => {
+          if (mountedRef.current) toast.error('Pembayaran gagal')
+          scheduleReload()
+        },
+        onClose: () => { scheduleReload() },
       })
     } catch (err) {
-      toast.error(err.message)
+      if (mountedRef.current) toast.error(err.message)
     } finally {
-      setPaying(false)
+      if (mountedRef.current) setPaying(false)
     }
   }
 
-  const totalPaid = payments.filter(p => CONFIRMED_STATUSES.includes(p.status)).reduce((s, p) => s + (p.amount || 0), 0)
+  const totalPaid = payments.filter(p => CONFIRMED_STATUSES.includes(p.status)).reduce((s, p) => s + (Number(p.amount) || 0), 0)
   const pendingCount = payments.filter(p => ['verification', 'pending'].includes(p.status)).length
 
   return (
@@ -345,7 +336,7 @@ export default function PaymentsPage() {
           </div>
           <div className="card-premium p-4">
             <p className="text-xs text-slate-400">Pinjaman Aktif</p>
-            <p className="text-2xl font-800 text-slate-900 mt-1">{activeLoans.length}</p>
+            <p className="text-2xl font-800 text-slate-900 mt-1">{loanStats.length}</p>
           </div>
         </div>
 
@@ -507,7 +498,7 @@ export default function PaymentsPage() {
                   <div className="flex gap-2 mt-2">
                     <button
                       type="button"
-                      onClick={() => setAmount(String(selectedLoan.eff.monthlyInstallment))}
+                      onClick={() => setAmount(String(Math.min(selectedLoan.eff.monthlyInstallment, selectedLoan.remaining)))}
                       className="text-xs font-600 text-emerald-600 hover:text-emerald-700 px-2 py-1 rounded bg-emerald-50"
                     >
                       Cicilan/bulan

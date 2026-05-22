@@ -7,6 +7,8 @@ import { Button } from '../../components/ui/Button'
 import { loanService, paymentService, midtransService } from '../../services'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
+import { recomputeLoanState } from '../../lib/paymentSync'
+import { useDebouncedReload } from '../../lib/useDebouncedReload'
 import { formatIDR, formatDate, formatDateTime, getEffectiveAmount, isRevised, getEffectiveLoanNumbers, generateRefNumber } from '../../lib/utils'
 import {
   ArrowLeft, AlertCircle, CheckCircle, Clock, Banknote, CreditCard,
@@ -47,8 +49,6 @@ const STATUS_STEPS = [
   { key: 'disbursed', label: 'Dicairkan', icon: Banknote },
 ]
 
-const TERMINAL_STATUS = { rejected: 'Ditolak', completed: 'Lunas', overdue: 'Telat Bayar' }
-
 export default function LoanDetailPage() {
   const { id } = useParams()
   const { profile } = useAuth()
@@ -60,33 +60,35 @@ export default function LoanDetailPage() {
   const [payAmount, setPayAmount] = useState('')
   const [paying, setPaying] = useState(false)
 
-  // Guard against concurrent load() calls
-  const loadingRef = useRef(false)
+  // Guard untuk setState setelah unmount (mencegah race onSuccess panggil load setelah modal ditutup & component unmount)
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
   const load = useCallback(async () => {
-    if (loadingRef.current) return
-    loadingRef.current = true
-    try {
-      const [loanRes, payRes] = await Promise.all([
-        loanService.getById(id),
-        profile ? paymentService.getByUserId(profile.id) : { data: [] },
-      ])
-      if (loanRes.error) {
-        setFetchError(loanRes.error.message)
-      } else {
-        setLoan(loanRes.data)
-        const loanPayments = (payRes.data || []).filter(p => p.loan_id === id)
-        setPayments(loanPayments)
-      }
-    } finally {
-      loadingRef.current = false
-      setLoading(false)
+    const [loanRes, payRes] = await Promise.all([
+      loanService.getById(id),
+      profile ? paymentService.getByLoanId(id) : Promise.resolve({ data: [] }),
+    ])
+    if (!mountedRef.current) return
+    if (loanRes.error) {
+      setFetchError(loanRes.error.message)
+    } else {
+      setLoan(loanRes.data)
+      setPayments(payRes.data || [])
+      setFetchError(null)
     }
+    setLoading(false)
   }, [id, profile])
 
   useEffect(() => { load() }, [load])
 
-  // Realtime sync — update otomatis ketika payment atau loan berubah
+  const scheduleReload = useDebouncedReload(load, 250)
+
+  // Realtime sync — debounced, jadi banyak event berdekatan (INSERT payment + UPDATE webhook)
+  // hanya menyebabkan satu reload
   useEffect(() => {
     if (!id) return
     const channel = supabase
@@ -96,51 +98,27 @@ export default function LoanDetailPage() {
         schema: 'public',
         table: 'payments',
         filter: `loan_id=eq.${id}`,
-      }, () => { load() })
+      }, () => { scheduleReload() })
       .on('postgres_changes', {
         event: 'UPDATE',
         schema: 'public',
         table: 'loans',
         filter: `id=eq.${id}`,
-      }, () => { load() })
+      }, () => { scheduleReload() })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
-  }, [id, load])
+  }, [id, scheduleReload])
 
   // ── Effective numbers (otomatis correct meski data lama belum direkalkulasi) ─
-  // Untuk semua angka finansial (cicilan, total bayar, sisa, progress), pakai
-  // numbers ini, BUKAN langsung loan.* — supaya konsisten dengan approved_amount.
-  const eff = loan ? getEffectiveLoanNumbers(loan) : { totalRepayment: 0, monthlyInstallment: 0, netDisbursement: 0, totalInterest: 0, platformFee: 0, principal: 0 }
+  const eff = loan
+    ? getEffectiveLoanNumbers(loan)
+    : { totalRepayment: 0, monthlyInstallment: 0, netDisbursement: 0, totalInterest: 0, platformFee: 0, principal: 0 }
 
-  const totalPaid = payments.filter(p => ['confirmed', 'settlement', 'capture'].includes(p.status))
-    .reduce((s, p) => s + (p.amount || 0), 0)
+  const totalPaid = payments
+    .filter(p => ['confirmed', 'settlement', 'capture'].includes(p.status))
+    .reduce((s, p) => s + (Number(p.amount) || 0), 0)
   const remaining = Math.max(0, eff.totalRepayment - totalPaid)
   const progress = eff.totalRepayment ? Math.min(100, Math.round((totalPaid / eff.totalRepayment) * 100)) : 0
-
-  /**
-   * Sync sisa tagihan dan status pinjaman ke DB setelah pembayaran sukses.
-   * Fallback agar UI update tanpa menunggu webhook Midtrans (terutama di sandbox).
-   */
-  const syncLoanAfterPayment = async (paidAmount) => {
-    try {
-      const paymentsRes = await paymentService.getByLoanId(id)
-      const confirmed = (paymentsRes.data || []).filter(
-        p => ['settlement', 'capture', 'confirmed'].includes(p.status)
-      )
-      const totalPaid = confirmed.reduce((s, p) => s + (p.amount || 0), 0) + paidAmount
-      const totalRepayment = loan?.total_repayment || 0
-      const newRemaining = Math.max(0, totalRepayment - totalPaid)
-      const updates = { remaining_amount: newRemaining }
-      if (newRemaining === 0) {
-        updates.status = 'completed'
-        updates.completed_at = new Date().toISOString()
-      }
-      const { error } = await supabase.from('loans').update(updates).eq('id', id)
-      if (error) console.error('[syncLoanAfterPayment] error:', error)
-    } catch (err) {
-      console.error('[syncLoanAfterPayment] exception:', err)
-    }
-  }
 
   const handlePay = async () => {
     const amt = Number(payAmount)
@@ -164,7 +142,7 @@ export default function LoanDetailPage() {
         throw new Error(createErr?.message || 'Gagal membuat order pembayaran')
       }
 
-      // 2. Request Snap token via Edge Function
+      // 2. Request Snap token
       const { token, error: tokenErr } = await midtransService.createSnapToken({
         orderId,
         grossAmount: amt,
@@ -195,18 +173,20 @@ export default function LoanDetailPage() {
 
       window.snap.pay(token, {
         onSuccess: async (result) => {
+          // Update payment record dulu, baru recompute loan state
           await paymentService.update(payment.id, {
             status: 'settlement',
             midtrans_status: result.transaction_status,
             midtrans_transaction_id: result.transaction_id,
             midtrans_payment_type: result.payment_type,
           })
-          // Sync remaining & status ke DB tanpa tunggu webhook
-          await syncLoanAfterPayment(amt)
+          // recomputeLoanState idempotent — bisa dipanggil paralel dengan webhook
+          await recomputeLoanState(id)
+          if (!mountedRef.current) return
           toast.success('Pembayaran berhasil! Terima kasih.', { duration: 5000 })
           setPayOpen(false)
           setPayAmount('')
-          setTimeout(() => load(), 500)
+          scheduleReload()
         },
         onPending: async (result) => {
           await paymentService.update(payment.id, {
@@ -215,30 +195,33 @@ export default function LoanDetailPage() {
             midtrans_transaction_id: result.transaction_id,
             midtrans_payment_type: result.payment_type,
           })
+          if (!mountedRef.current) return
           toast('Pembayaran sedang diproses. Selesaikan sesuai instruksi yang diberikan.', { icon: '⏳', duration: 6000 })
           setPayOpen(false)
           setPayAmount('')
-          setTimeout(() => load(), 500)
+          scheduleReload()
         },
         onError: async (result) => {
           await paymentService.update(payment.id, {
             status: 'failed',
             midtrans_status: result?.status_message || 'error',
           })
+          if (!mountedRef.current) return
           toast.error('Pembayaran gagal. Silakan coba lagi.')
-          setTimeout(() => load(), 500)
+          scheduleReload()
         },
         onClose: () => {
+          if (!mountedRef.current) return
           toast('Pembayaran belum diselesaikan. Kamu bisa melanjutkan dari menu Pembayaran.', { icon: 'ℹ️' })
           setPayOpen(false)
-          setTimeout(() => load(), 500)
+          scheduleReload()
         },
       })
     } catch (err) {
       console.error('Payment error:', err)
-      toast.error(err.message || 'Terjadi kesalahan saat memproses pembayaran')
+      if (mountedRef.current) toast.error(err.message || 'Terjadi kesalahan saat memproses pembayaran')
     } finally {
-      setPaying(false)
+      if (mountedRef.current) setPaying(false)
     }
   }
 
@@ -331,7 +314,7 @@ export default function LoanDetailPage() {
                 const Icon = step.icon
                 return (
                   <div key={step.key} className="flex items-center flex-1">
-                    <div className={`flex flex-col items-center gap-1.5 flex-1 ${i < STATUS_STEPS.length - 1 ? '' : ''}`}>
+                    <div className={`flex flex-col items-center gap-1.5 flex-1`}>
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${done ? 'bg-emerald-500' : active ? 'bg-emerald-100 ring-2 ring-emerald-400' : 'bg-slate-100'
                         }`}>
                         <Icon size={14} className={done ? 'text-white' : active ? 'text-emerald-600' : 'text-slate-400'} />
@@ -353,7 +336,7 @@ export default function LoanDetailPage() {
                 </p>
               </div>
             )}
-            {/* Banner revisi — muncul untuk SEMUA status sebelum disburse, selama amount efektif berbeda dari amount asli */}
+            {/* Banner revisi */}
             {isRevised(loan, true) && ['revision', 'review', 'approved'].includes(loan.status) && (
               <div className="mt-4 p-3 bg-amber-50 rounded-xl border border-amber-200">
                 <div className="flex items-center gap-2 mb-1">
@@ -412,9 +395,13 @@ export default function LoanDetailPage() {
               </div>
             </div>
             {!payOpen ? (
-              <Button icon={CreditCard} onClick={() => { setPayOpen(true); setPayAmount(String(eff.monthlyInstallment || '')) }}
-                className="w-full">
-                Bayar Cicilan Sekarang
+              <Button
+                icon={CreditCard}
+                onClick={() => { setPayOpen(true); setPayAmount(String(Math.min(eff.monthlyInstallment, remaining) || '')) }}
+                className="w-full"
+                disabled={remaining <= 0}
+              >
+                {remaining <= 0 ? 'Sudah Lunas' : 'Bayar Cicilan Sekarang'}
               </Button>
             ) : (
               <div className="space-y-3 p-4 bg-white rounded-xl border border-slate-100">
@@ -423,7 +410,7 @@ export default function LoanDetailPage() {
                   <label className="label-field">Jumlah Pembayaran (Rp)</label>
                   <input type="number" className="input-field" value={payAmount}
                     onChange={e => setPayAmount(e.target.value)}
-                    placeholder="Nominal pembayaran" min={1} />
+                    placeholder="Nominal pembayaran" min={1} max={remaining} />
                   <p className="text-xs text-slate-400 mt-1">Sisa tagihan: {formatIDR(remaining)}</p>
                 </div>
                 <div className="flex items-center gap-2 p-2.5 bg-blue-50 rounded-lg">
@@ -431,7 +418,7 @@ export default function LoanDetailPage() {
                   <p className="text-xs text-blue-700">Mendukung Transfer Bank, QRIS, Virtual Account melalui Midtrans</p>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="secondary" onClick={() => setPayOpen(false)} className="flex-1">Batal</Button>
+                  <Button variant="secondary" onClick={() => setPayOpen(false)} className="flex-1" disabled={paying}>Batal</Button>
                   <Button icon={CreditCard} loading={paying} onClick={handlePay} className="flex-1">
                     {paying ? 'Memproses...' : 'Bayar Sekarang'}
                   </Button>
@@ -477,12 +464,12 @@ export default function LoanDetailPage() {
         {schedule.length > 0 && (
           <SectionCard title={`Jadwal Cicilan (${loan.tenor} bulan)`} icon={Calendar}>
             <div className="space-y-2">
-              {schedule.map((s, i) => {
+              {schedule.map((s) => {
                 const isPaid = s.status === 'paid'
                 const isOverdue = s.status === 'overdue'
                 const paidForMonth = payments
                   .filter(p => p.schedule_id === s.id && ['confirmed', 'settlement', 'capture'].includes(p.status))
-                  .reduce((sum, p) => sum + (p.amount || 0), 0)
+                  .reduce((sum, p) => sum + (Number(p.amount) || 0), 0)
 
                 return (
                   <div key={s.id} className={`flex items-center justify-between px-4 py-3 rounded-xl transition-all ${isPaid ? 'bg-emerald-50 border border-emerald-100' :
@@ -563,9 +550,9 @@ export default function LoanDetailPage() {
             <div className="space-y-2">
               {payments.map(p => {
                 const isConfirmed = ['confirmed', 'settlement', 'capture'].includes(p.status)
-                const isPending = ['pending', 'verification'].includes(p.status)
+                const isPendingP = ['pending', 'verification'].includes(p.status)
                 return (
-                  <div key={p.id} className={`flex items-center justify-between px-3 py-2.5 rounded-xl ${isConfirmed ? 'bg-emerald-50' : isPending ? 'bg-amber-50' : 'bg-slate-50'
+                  <div key={p.id} className={`flex items-center justify-between px-3 py-2.5 rounded-xl ${isConfirmed ? 'bg-emerald-50' : isPendingP ? 'bg-amber-50' : 'bg-slate-50'
                     }`}>
                     <div>
                       <p className="text-sm font-600 text-slate-800">{formatIDR(p.amount)}</p>
@@ -573,9 +560,9 @@ export default function LoanDetailPage() {
                     </div>
                     <div className="text-right">
                       <span className={`text-xs font-700 px-2 py-0.5 rounded-full ${isConfirmed ? 'bg-emerald-100 text-emerald-700' :
-                        isPending ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
+                        isPendingP ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
                         }`}>
-                        {isConfirmed ? 'Dikonfirmasi' : isPending ? 'Menunggu' : 'Gagal'}
+                        {isConfirmed ? 'Dikonfirmasi' : isPendingP ? 'Menunggu' : 'Gagal'}
                       </span>
                       {p.midtrans_order_id && <p className="text-xs text-slate-400 mt-0.5 font-mono">{p.midtrans_order_id}</p>}
                     </div>
