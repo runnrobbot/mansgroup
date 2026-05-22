@@ -26,7 +26,6 @@ const MyGadaiPage = lazy(() => import('./pages/dashboard/MyGadaiPage'))
 const PaymentsPage = lazy(() => import('./pages/dashboard/PaymentsPage'))
 const ProfilePage = lazy(() => import('./pages/dashboard/ProfilePage'))
 const LoanDetailPage = lazy(() => import('./pages/dashboard/LoanDetailPage'))
-const DocumentsPage = lazy(() => import('./pages/dashboard/DocumentsPage'))
 const NotificationsPage = lazy(() => import('./pages/dashboard/NotificationsPage'))
 
 // Staff
@@ -91,7 +90,6 @@ function AppRoutes() {
       <Route path="/dashboard/gadai/apply" element={<RequireAuth><ApplyGadaiPage /></RequireAuth>} />
       <Route path="/dashboard/payments" element={<RequireAuth><PaymentsPage /></RequireAuth>} />
       <Route path="/dashboard/profile" element={<RequireAuth><ProfilePage /></RequireAuth>} />
-      <Route path="/dashboard/documents" element={<RequireAuth><DocumentsPage /></RequireAuth>} />
       <Route path="/dashboard/notifications" element={<RequireAuth><NotificationsPage /></RequireAuth>} />
 
       {/* Staff */}

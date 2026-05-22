@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { DashboardLayout } from '../../components/layout/DashboardLayout'
 import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
@@ -9,26 +9,27 @@ import { useConfirm } from '../../components/ui/ConfirmModal'
 import { useAuth } from '../../contexts/AuthContext'
 import { gadaiService } from '../../services'
 import { formatIDR, formatDate, formatDateTime, calculateGadaiSimulation } from '../../lib/utils'
-import { Plus, Eye, RefreshCw, AlertTriangle, Calendar, Package } from 'lucide-react'
+import { Plus, Eye, RefreshCw, AlertTriangle, Calendar, Package, Lock, Clock, ArrowRight, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const STATUS_INFO = {
-  pending: { label: 'Menunggu Review', color: 'bg-slate-100 text-slate-600' },
-  review: { label: 'Direview Staff', color: 'bg-blue-50 text-blue-700' },
-  waiting_pickup: { label: 'Menunggu Penjemputan', color: 'bg-amber-50 text-amber-700' },
-  picked_up: { label: 'Barang Dijemput', color: 'bg-violet-50 text-violet-700' },
-  received: { label: 'Diterima Warehouse', color: 'bg-blue-50 text-blue-700' },
-  active: { label: 'Aktif Digadai', color: 'bg-emerald-50 text-emerald-700' },
-  due: { label: 'Jatuh Tempo', color: 'bg-amber-50 text-amber-700' },
-  extended: { label: 'Diperpanjang', color: 'bg-teal-50 text-teal-700' },
-  overdue: { label: 'Telat Bayar', color: 'bg-red-50 text-red-700' },
-  completed: { label: 'Lunas', color: 'bg-emerald-100 text-emerald-800' },
-  forfeited: { label: 'Disita', color: 'bg-red-100 text-red-800' },
-  rejected: { label: 'Ditolak', color: 'bg-red-50 text-red-700' },
+  pending:         { label: 'Menunggu Review',       color: 'bg-slate-100 text-slate-600' },
+  review:          { label: 'Direview Staff',         color: 'bg-blue-50 text-blue-700' },
+  waiting_pickup:  { label: 'Menunggu Penjemputan',   color: 'bg-amber-50 text-amber-700' },
+  picked_up:       { label: 'Barang Dijemput',        color: 'bg-violet-50 text-violet-700' },
+  received:        { label: 'Diterima Warehouse',     color: 'bg-blue-50 text-blue-700' },
+  active:          { label: 'Aktif Digadai',          color: 'bg-emerald-50 text-emerald-700' },
+  due:             { label: 'Jatuh Tempo',            color: 'bg-amber-50 text-amber-700' },
+  extended:        { label: 'Diperpanjang',           color: 'bg-teal-50 text-teal-700' },
+  overdue:         { label: 'Telat Bayar',            color: 'bg-red-50 text-red-700' },
+  completed:       { label: 'Lunas',                  color: 'bg-emerald-100 text-emerald-800' },
+  forfeited:       { label: 'Disita',                 color: 'bg-red-100 text-red-800' },
+  rejected:        { label: 'Ditolak',                color: 'bg-red-50 text-red-700' },
 }
 
 export default function MyGadaiPage() {
   const { profile } = useAuth()
+  const navigate = useNavigate()
   const confirm = useConfirm()
   const [gadais, setGadais] = useState([])
   const [loading, setLoading] = useState(true)
@@ -45,6 +46,22 @@ export default function MyGadaiPage() {
 
   useEffect(() => { load() }, [profile])
 
+  // ── Status logic ──────────────────────────────────────────────────────────
+  const isProfileComplete = !!(
+    profile?.full_name && profile?.nik && profile?.phone &&
+    profile?.birth_date && profile?.address && profile?.occupation && profile?.income
+  )
+  const isKycVerified = profile?.kyc_status === 'verified'
+
+  // Gadai aktif = masih ada barang di tangan kita
+  const activeGadai = gadais.find(g =>
+    ['active', 'due', 'extended', 'overdue', 'waiting_pickup', 'picked_up', 'received'].includes(g.status)
+  )
+  // Pengajuan masih pending review
+  const pendingGadai = gadais.find(g =>
+    ['pending', 'review'].includes(g.status)
+  )
+
   const handleExtend = async (gadai) => {
     const sim = calculateGadaiSimulation(gadai.loan_amount || 0)
     const ok = await confirm({
@@ -54,64 +71,186 @@ export default function MyGadaiPage() {
       confirmLabel: 'Ya, Perpanjang',
     })
     if (!ok) return
-
     setActionLoading(true)
     const { error } = await gadaiService.updateStatus(gadai.id, 'extended', 'Perpanjangan oleh user')
-    if (!error) {
-      toast.success('Gadai berhasil diperpanjang')
-      load()
-    } else {
-      toast.error('Gagal memperpanjang gadai')
-    }
+    if (!error) { toast.success('Gadai berhasil diperpanjang'); load() }
+    else toast.error('Gagal memperpanjang gadai')
     setActionLoading(false)
   }
 
+  // ── Tombol "Ajukan Gadai" — 4 kondisi ────────────────────────────────────
+  const getApplyButton = () => {
+    if (!isProfileComplete || !isKycVerified) {
+      return (
+        <button
+          onClick={() => {
+            toast.error(!isProfileComplete ? 'Lengkapi data profil terlebih dahulu' : 'Verifikasi KYC diperlukan sebelum pengajuan')
+            navigate('/dashboard/profile')
+          }}
+          className="inline-flex items-center gap-1.5 text-sm py-2 px-4 rounded-lg font-600 bg-slate-200 text-slate-500 cursor-pointer transition-all hover:bg-slate-300"
+        >
+          <Lock size={14} /> Ajukan Gadai
+        </button>
+      )
+    }
+    if (activeGadai) {
+      return (
+        <button
+          onClick={() => toast.error('Selesaikan atau tebus gadai aktif terlebih dahulu sebelum mengajukan gadai baru')}
+          className="inline-flex items-center gap-1.5 text-sm py-2 px-4 rounded-lg font-600 bg-slate-200 text-slate-500 cursor-pointer transition-all hover:bg-slate-300"
+        >
+          <Lock size={14} /> Ajukan Gadai
+        </button>
+      )
+    }
+    if (pendingGadai) {
+      return (
+        <button
+          onClick={() => { setSelected(pendingGadai); setDetailOpen(true) }}
+          className="inline-flex items-center gap-1.5 text-sm py-2 px-4 rounded-lg font-600 bg-amber-50 text-amber-700 border border-amber-200 cursor-pointer transition-all hover:bg-amber-100"
+        >
+          <Clock size={14} /> Lihat Pengajuan
+        </button>
+      )
+    }
+    return (
+      <Link
+        to="/dashboard/gadai/apply"
+        className="inline-flex items-center gap-1.5 text-sm py-2 px-4 rounded-lg font-600 btn-primary"
+      >
+        <Plus size={14} /> Ajukan Gadai
+      </Link>
+    )
+  }
+
+  // ── Banner info ───────────────────────────────────────────────────────────
+  const getBanner = () => {
+    if (!isProfileComplete) {
+      return (
+        <div className="flex items-start gap-3 p-4 bg-blue-50 border border-blue-100 rounded-2xl">
+          <AlertCircle size={16} className="text-blue-500 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-700 text-blue-800">Profil belum lengkap</p>
+            <p className="text-xs text-blue-600 mt-0.5">Isi data diri, NIK, dan verifikasi KYC sebelum mengajukan gadai.</p>
+          </div>
+          <Link to="/dashboard/profile" className="ml-auto text-xs font-600 text-blue-600 hover:text-blue-700 flex items-center gap-1 whitespace-nowrap">
+            Lengkapi <ArrowRight size={12} />
+          </Link>
+        </div>
+      )
+    }
+    if (!isKycVerified) {
+      return (
+        <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-100 rounded-2xl">
+          <AlertCircle size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-700 text-amber-800">KYC belum diverifikasi</p>
+            <p className="text-xs text-amber-600 mt-0.5">
+              {profile?.kyc_status === 'pending'
+                ? 'Dokumen KYC kamu sedang dalam proses review oleh tim kami.'
+                : 'Upload KTP dan selfie untuk memulai proses verifikasi.'}
+            </p>
+          </div>
+          <Link to="/dashboard/profile" className="ml-auto text-xs font-600 text-amber-600 hover:text-amber-700 flex items-center gap-1 whitespace-nowrap">
+            {profile?.kyc_status === 'pending' ? 'Cek Status' : 'Verifikasi'} <ArrowRight size={12} />
+          </Link>
+        </div>
+      )
+    }
+    if (activeGadai) {
+      return (
+        <div className="flex items-start gap-3 p-4 bg-slate-50 border border-slate-200 rounded-2xl">
+          <Lock size={16} className="text-slate-400 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-700 text-slate-700">Sudah ada gadai aktif</p>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Gadai <span className="font-600">{activeGadai.ref_number}</span> ({activeGadai.item_name || 'barang'}, {formatIDR(activeGadai.loan_amount)}) masih aktif.
+              Tebus atau selesaikan terlebih dahulu sebelum mengajukan gadai baru.
+            </p>
+          </div>
+          <button
+            onClick={() => { setSelected(activeGadai); setDetailOpen(true) }}
+            className="ml-auto text-xs font-600 text-slate-600 hover:text-slate-700 flex items-center gap-1 whitespace-nowrap"
+          >
+            Detail <ArrowRight size={12} />
+          </button>
+        </div>
+      )
+    }
+    if (pendingGadai) {
+      return (
+        <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-100 rounded-2xl">
+          <Clock size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <p className="text-sm font-700 text-amber-800">Ada pengajuan yang sedang diproses</p>
+            <p className="text-xs text-amber-600 mt-0.5">
+              Gadai <span className="font-600">{pendingGadai.ref_number}</span> ({pendingGadai.item_name || 'barang'}) sedang dalam review tim kami.
+            </p>
+          </div>
+          <button
+            onClick={() => { setSelected(pendingGadai); setDetailOpen(true) }}
+            className="ml-auto text-xs font-600 text-amber-600 hover:text-amber-700 flex items-center gap-1 whitespace-nowrap"
+          >
+            Lihat <ArrowRight size={12} />
+          </button>
+        </div>
+      )
+    }
+    // Overdue warning (independent)
+    if (gadais.some(g => g.status === 'overdue')) {
+      return (
+        <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-2xl">
+          <AlertTriangle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-700 text-red-700">Ada gadai yang melewati jatuh tempo</p>
+            <p className="text-xs text-red-500 mt-0.5">Segera lakukan perpanjangan atau pelunasan untuk menghindari penyitaan barang.</p>
+          </div>
+        </div>
+      )
+    }
+    return null
+  }
+
   const stats = {
-    active: gadais.filter(g => g.status === 'active').length,
+    active: gadais.filter(g => ['active', 'due', 'extended'].includes(g.status)).length,
+    pending: gadais.filter(g => ['pending', 'review', 'waiting_pickup', 'picked_up', 'received'].includes(g.status)).length,
     total: gadais.length,
-    pending: gadais.filter(g => ['pending', 'review', 'waiting_pickup'].includes(g.status)).length,
   }
 
   return (
     <DashboardLayout role="user">
       <div className="space-y-5">
+        {/* Header */}
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-xl font-800 text-slate-900">Gadai Saya</h1>
             <p className="text-sm text-slate-500 mt-0.5">{gadais.length} total pengajuan gadai</p>
           </div>
-          <Link to="/dashboard/gadai/apply" className="btn-primary text-sm py-2 px-4 rounded-lg flex items-center gap-1.5">
-            <Plus size={14} />Ajukan Gadai
-          </Link>
+          {getApplyButton()}
         </div>
+
+        {/* Banner */}
+        {!loading && getBanner()}
 
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-4">
-          <div className="card-premium p-4">
-            <p className="text-xs text-slate-400">Aktif Digadai</p>
-            <p className="text-2xl font-800 text-emerald-700 mt-1">{stats.active}</p>
-          </div>
-          <div className="card-premium p-4">
-            <p className="text-xs text-slate-400">Proses</p>
-            <p className="text-2xl font-800 text-amber-700 mt-1">{stats.pending}</p>
-          </div>
-          <div className="card-premium p-4">
-            <p className="text-xs text-slate-400">Total Pengajuan</p>
-            <p className="text-2xl font-800 text-slate-900 mt-1">{stats.total}</p>
-          </div>
-        </div>
-
-        {/* Alert for active/overdue */}
-        {gadais.filter(g => g.status === 'overdue').length > 0 && (
-          <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
-            <AlertTriangle size={16} className="text-red-500 flex-shrink-0 mt-0.5" />
-            <div>
-              <p className="text-sm font-700 text-red-700">Ada Gadai yang Melewati Jatuh Tempo</p>
-              <p className="text-xs text-red-500 mt-0.5">Segera lakukan pembayaran atau perpanjangan untuk menghindari penyitaan barang.</p>
+        {!loading && gadais.length > 0 && (
+          <div className="grid grid-cols-3 gap-4">
+            <div className="card-premium p-4">
+              <p className="text-xs text-slate-400">Aktif Digadai</p>
+              <p className="text-2xl font-800 text-emerald-700 mt-1">{stats.active}</p>
+            </div>
+            <div className="card-premium p-4">
+              <p className="text-xs text-slate-400">Proses</p>
+              <p className="text-2xl font-800 text-amber-700 mt-1">{stats.pending}</p>
+            </div>
+            <div className="card-premium p-4">
+              <p className="text-xs text-slate-400">Total Pengajuan</p>
+              <p className="text-2xl font-800 text-slate-900 mt-1">{stats.total}</p>
             </div>
           </div>
         )}
 
+        {/* Table */}
         <Card>
           <Table>
             <TableHead>
@@ -152,13 +291,18 @@ export default function MyGadaiPage() {
                   </Td>
                   <Td align="center">
                     <div className="flex items-center justify-center gap-1">
-                      <button onClick={() => { setSelected(g); setDetailOpen(true) }}
-                        className="w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 transition-colors">
+                      <button
+                        onClick={() => { setSelected(g); setDetailOpen(true) }}
+                        className="w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 transition-colors"
+                      >
                         <Eye size={13} />
                       </button>
                       {['active', 'due', 'overdue'].includes(g.status) && (
-                        <button onClick={() => handleExtend(g)} disabled={actionLoading}
-                          className="w-7 h-7 rounded-lg hover:bg-amber-50 flex items-center justify-center text-amber-600 transition-colors disabled:opacity-50">
+                        <button
+                          onClick={() => handleExtend(g)}
+                          disabled={actionLoading}
+                          className="w-7 h-7 rounded-lg hover:bg-amber-50 flex items-center justify-center text-amber-600 transition-colors disabled:opacity-50"
+                        >
                           <RefreshCw size={13} />
                         </button>
                       )}
@@ -193,11 +337,11 @@ export default function MyGadaiPage() {
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   {[
-                    { label: 'Ref. Nomor', value: selected.ref_number || '-' },
-                    { label: 'Nilai Pinjaman', value: formatIDR(selected.loan_amount) },
-                    { label: 'Jatuh Tempo', value: selected.due_date ? formatDate(selected.due_date) : '-' },
-                    { label: 'Jadwal Pickup', value: selected.pickup_schedule ? formatDateTime(selected.pickup_schedule) : '-' },
-                    { label: 'Tanggal Pengajuan', value: formatDateTime(selected.created_at) },
+                    { label: 'Ref. Nomor',        value: selected.ref_number || '-' },
+                    { label: 'Nilai Pinjaman',     value: formatIDR(selected.loan_amount) },
+                    { label: 'Jatuh Tempo',        value: selected.due_date ? formatDate(selected.due_date) : '-' },
+                    { label: 'Jadwal Pickup',      value: selected.pickup_schedule ? formatDateTime(selected.pickup_schedule) : '-' },
+                    { label: 'Tanggal Pengajuan',  value: formatDateTime(selected.created_at) },
                     { label: 'Biaya Perpanjangan', value: formatIDR((selected.loan_amount || 0) * 0.1) },
                   ].map(({ label, value }) => (
                     <div key={label}>

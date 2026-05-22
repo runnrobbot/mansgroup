@@ -130,7 +130,6 @@ export const NAV_ITEMS = {
     { path: '/dashboard/loans', label: 'Pinjaman Saya', icon: 'CreditCard' },
     { path: '/dashboard/gadai', label: 'Gadai Saya', icon: 'Package' },
     { path: '/dashboard/payments', label: 'Pembayaran', icon: 'Receipt' },
-    { path: '/dashboard/documents', label: 'Dokumen', icon: 'FileText' },
     { path: '/dashboard/profile', label: 'Profil', icon: 'User' },
   ],
   staff: [
