@@ -72,8 +72,7 @@ export function Navbar() {
 
             {/* Logo */}
             <Link to="/" className="flex items-center gap-2.5 flex-shrink-0">
-              <img src="/logo-utama.png" alt="MansGroup" className="h-8 w-auto" />
-              <img src="/logo-samping.png" alt="MansGroup" className="h-7 w-auto hidden sm:block" />
+              <img src="/mansgroup.png" alt="MansGroup" className="h-8 w-auto" />
             </Link>
 
             {/* Desktop Nav */}

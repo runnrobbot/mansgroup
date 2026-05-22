@@ -51,7 +51,7 @@ export function DashboardLayout({ children, role }) {
         collapsed && !mobile && 'justify-center px-0'
       )}>
         <div className={`w-8 h-8 rounded-[10px] flex items-center justify-center flex-shrink-0`}>
-          <img src="/logo-utama.png" alt="MansGroup" className="h-8 w-auto" />
+          <img src="/mansgroup.png" alt="MansGroup" className="h-8 w-auto" />
         </div>
         {(!collapsed || mobile) && (
           <div className="flex flex-col leading-none overflow-hidden">
@@ -188,8 +188,7 @@ export function DashboardLayout({ children, role }) {
             <Menu size={18} />
           </button>
           <div className="flex items-center gap-2">
-            <img src="/logo-utama.png" alt="MansGroup" className="h-6 w-auto" />
-            <img src="/logo-samping.png" alt="MansGroup" className="h-5 w-auto" />
+            <img src="/mansgroup.png" alt="MansGroup" className="h-6 w-auto" />
           </div>
           <Link to={`/${role}/notifications`} className="relative w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500">
             <Bell size={16} />
