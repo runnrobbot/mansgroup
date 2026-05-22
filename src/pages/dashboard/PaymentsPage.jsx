@@ -124,8 +124,8 @@ export default function PaymentsPage() {
       monthsPaid,
       defaultPay: Math.min(eff.monthlyInstallment, remaining),
     }
-  }).filter(s => s.loan.status !== 'completed' || s.remaining > 0)
-  // ↑ Sembunyikan loan yang sudah completed dan tidak ada sisa — tagihan hilang dari list
+  }).filter(s => s.remaining > 0)
+  // ↑ Sembunyikan loan yang remaining-nya sudah 0 (lunas) — tidak perlu tunggu DB update status ke 'completed'
 
   const openPay = (stat) => {
     setSelectedLoan(stat)
@@ -206,6 +206,7 @@ export default function PaymentsPage() {
           if (!mountedRef.current) return
           toast.success('Pembayaran berhasil! Terima kasih.', { duration: 5000 })
           setPayOpen(false)
+          load() // force immediate reload — jangan hanya andalkan debounce/realtime
         },
         onPending: async (result) => {
           await paymentService.update(payment.id, {
@@ -288,7 +289,10 @@ export default function PaymentsPage() {
       window.snap.pay(token, {
         onSuccess: async (result) => {
           await finalizePayment(payment.id, 'settlement', result, payment.loan_id)
-          if (mountedRef.current) toast.success('Pembayaran berhasil!')
+          if (mountedRef.current) {
+            toast.success('Pembayaran berhasil!')
+            load() // force immediate reload
+          }
         },
         onPending: async (result) => {
           await paymentService.update(payment.id, {

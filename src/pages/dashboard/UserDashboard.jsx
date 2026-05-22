@@ -10,7 +10,7 @@ import { DashboardLayout } from '../../components/layout/DashboardLayout'
 import { Card, StatCard } from '../../components/ui/Card'
 import { StatusBadge } from '../../components/ui/Badge'
 import { loanService, gadaiService, paymentService } from '../../services'
-import { formatIDR, formatDate, formatRelativeTime } from '../../lib/utils'
+import { formatIDR, formatDate, formatRelativeTime, getEffectiveLoanNumbers } from '../../lib/utils'
 import { useNotifications } from '../../contexts/NotificationContext'
 import toast from 'react-hot-toast'
 
@@ -252,7 +252,19 @@ export default function UserDashboard() {
                         </div>
                         <div>
                           <p className="text-sm font-600 text-slate-900">{loan.ref_number || 'Pinjaman'}</p>
-                          <p className="text-xs text-slate-400">{formatIDR(loan.amount)} · {loan.tenor} bulan · {formatDate(loan.created_at)}</p>
+                          <p className="text-xs text-slate-400">
+                            {(() => {
+                              const eff = getEffectiveLoanNumbers(loan)
+                              const isRevised = eff.principal > 0 && eff.principal !== (loan.amount || 0)
+                              return (
+                                <>
+                                  {formatIDR(eff.principal)}
+                                  {isRevised && <span className="text-amber-500 ml-1">(direvisi)</span>}
+                                  {' · '}{loan.tenor} bulan · {formatDate(loan.created_at)}
+                                </>
+                              )
+                            })()}
+                          </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
