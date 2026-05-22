@@ -6,39 +6,39 @@ import { Table, TableHead, Th, TableBody, Tr, Td, EmptyRow } from '../../compone
 import { Modal, ModalBody, ModalFooter } from '../../components/ui/Modal'
 import { useConfirm } from '../../components/ui/ConfirmModal'
 import { useAuth } from '../../contexts/AuthContext'
-import { paymentService, loanService } from '../../services'
-import { formatIDR, formatDate, generateRefNumber } from '../../lib/utils'
-import { CreditCard, Loader } from 'lucide-react'
+import { paymentService, loanService, midtransService } from '../../services'
+import {
+  formatIDR, formatDate, generateRefNumber,
+  getEffectiveLoanNumbers, isRevised,
+} from '../../lib/utils'
+import { CreditCard, Loader, AlertCircle, CheckCircle2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const STATUS_LABELS = {
-  pending: 'Pending',
+  pending: 'Menunggu Pembayaran',
   verification: 'Menunggu Verifikasi',
+  settlement: 'Berhasil',
+  capture: 'Berhasil',
   confirmed: 'Dikonfirmasi',
   failed: 'Gagal',
+  cancel: 'Dibatalkan',
+  expire: 'Kedaluwarsa',
   refunded: 'Direfund',
 }
 
 const STATUS_COLORS = {
-  pending:      'bg-slate-100 text-slate-600',
+  pending: 'bg-slate-100 text-slate-600',
   verification: 'bg-amber-50 text-amber-700',
-  confirmed:    'bg-emerald-50 text-emerald-700',
-  failed:       'bg-red-50 text-red-700',
-  refunded:     'bg-blue-50 text-blue-700',
+  settlement: 'bg-emerald-50 text-emerald-700',
+  capture: 'bg-emerald-50 text-emerald-700',
+  confirmed: 'bg-emerald-50 text-emerald-700',
+  failed: 'bg-red-50 text-red-700',
+  cancel: 'bg-slate-100 text-slate-500',
+  expire: 'bg-slate-100 text-slate-500',
+  refunded: 'bg-blue-50 text-blue-700',
 }
 
-// Load Midtrans Snap script
-function loadMidtrans(clientKey) {
-  return new Promise((resolve) => {
-    if (window.snap) { resolve(); return }
-    const script = document.createElement('script')
-    const snapUrl = import.meta.env.VITE_MIDTRANS_SNAP_URL || 'https://app.midtrans.com/snap/snap.js'
-    script.src = snapUrl
-    script.setAttribute('data-client-key', clientKey)
-    script.onload = () => resolve()
-    document.head.appendChild(script)
-  })
-}
+const CONFIRMED_STATUSES = ['settlement', 'capture', 'confirmed']
 
 export default function PaymentsPage() {
   const { profile } = useAuth()
@@ -50,9 +50,6 @@ export default function PaymentsPage() {
   const [selectedLoan, setSelectedLoan] = useState(null)
   const [amount, setAmount] = useState('')
   const [paying, setPaying] = useState(false)
-
-  // Midtrans client key from env
-  const MIDTRANS_CLIENT_KEY = import.meta.env.VITE_MIDTRANS_CLIENT_KEY || ''
 
   const load = async () => {
     if (!profile) return
@@ -67,9 +64,27 @@ export default function PaymentsPage() {
 
   useEffect(() => { load() }, [profile])
 
-  const openPay = (loan) => {
-    setSelectedLoan(loan)
-    setAmount('')
+  // Pre-compute per-loan stats supaya kita bisa tampilkan sisa tagihan & default amount
+  const loanStats = activeLoans.map(loan => {
+    const eff = getEffectiveLoanNumbers(loan)
+    const loanPayments = payments.filter(p => p.loan_id === loan.id && CONFIRMED_STATUSES.includes(p.status))
+    const totalPaid = loanPayments.reduce((s, p) => s + (p.amount || 0), 0)
+    const remaining = Math.max(0, eff.totalRepayment - totalPaid)
+    const monthsPaid = Math.floor(totalPaid / eff.monthlyInstallment)
+    return {
+      loan,
+      eff,
+      totalPaid,
+      remaining,
+      monthsPaid,
+      // Default nominal = cicilan/bulan, atau sisa tagihan kalau < cicilan/bulan
+      defaultPay: Math.min(eff.monthlyInstallment, remaining),
+    }
+  })
+
+  const openPay = (stat) => {
+    setSelectedLoan(stat)
+    setAmount(String(stat.defaultPay || ''))
     setPayOpen(true)
   }
 
@@ -78,99 +93,159 @@ export default function PaymentsPage() {
       toast.error('Masukkan nominal pembayaran yang valid')
       return
     }
-
     const nominal = Number(amount)
+    if (nominal > selectedLoan.remaining) {
+      toast.error(`Nominal melebihi sisa tagihan (${formatIDR(selectedLoan.remaining)})`)
+      return
+    }
 
-    // Confirm before proceeding
     const ok = await confirm({
       title: 'Lanjutkan Pembayaran?',
-      message: `Kamu akan membayar ${formatIDR(nominal)} untuk pinjaman ${selectedLoan.ref_number}. Kamu akan diarahkan ke halaman pembayaran Midtrans.`,
+      message: `Kamu akan membayar ${formatIDR(nominal)} untuk pinjaman ${selectedLoan.loan.ref_number}. Selanjutnya kamu akan diarahkan ke halaman pembayaran Midtrans yang aman.`,
       variant: 'info',
       confirmLabel: 'Lanjutkan',
     })
     if (!ok) return
 
     setPaying(true)
+    let paymentRecord = null
 
     try {
-      // 1. Create payment record in DB (status: pending)
+      // 1. Buat record payment di DB dulu (status: pending)
       const orderId = `PAY-${generateRefNumber()}`
-      const { data: payment, error } = await paymentService.create({
+      const { data: payment, error: createErr } = await paymentService.create({
         user_id: profile.id,
-        loan_id: selectedLoan.id,
+        loan_id: selectedLoan.loan.id,
         amount: nominal,
+        payment_type: 'repayment',
         payment_method: 'midtrans',
         midtrans_order_id: orderId,
         status: 'pending',
       })
+      if (createErr || !payment) {
+        throw new Error(createErr?.message || 'Gagal membuat order pembayaran')
+      }
+      paymentRecord = payment
 
-      if (error) throw new Error('Gagal membuat order pembayaran')
+      // 2. Request Snap token dari Edge Function
+      const { token, error: tokenErr } = await midtransService.createSnapToken({
+        orderId,
+        grossAmount: nominal,
+        customerName: profile.full_name,
+        customerEmail: profile.email,
+        customerPhone: profile.phone,
+        paymentId: payment.id,
+        itemDetails: [{
+          id: selectedLoan.loan.id,
+          price: nominal,
+          quantity: 1,
+          name: `Cicilan ${selectedLoan.loan.ref_number}`.slice(0, 50),
+        }],
+      })
 
-      // 2. Get Snap token from your backend / Supabase Edge Function
-      // In production: call your edge function that creates Midtrans transaction
-      // For now we show a mock flow
-      const snapTokenRes = await fetch('/api/midtrans/create-transaction', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          order_id: orderId,
-          gross_amount: nominal,
-          customer_name: profile.full_name,
-          customer_email: profile.email,
-          payment_id: payment?.id,
-        }),
-      }).catch(() => null)
-
-      if (!snapTokenRes || !snapTokenRes.ok) {
-        // Gateway tidak tersedia — catat pembayaran untuk verifikasi manual oleh admin
-        await paymentService.update(payment?.id, { status: 'verification' })
-        toast.success('Pembayaran berhasil dicatat dan menunggu konfirmasi dari tim kami.', { duration: 5000 })
-        setPayOpen(false)
-        load()
-        setPaying(false)
-        return
+      if (tokenErr || !token) {
+        // Cleanup: tandai gagal supaya tidak orphan
+        await paymentService.update(payment.id, {
+          status: 'failed',
+          notes: `Gagal mendapatkan token Midtrans: ${tokenErr?.message || 'unknown'}`,
+        })
+        throw new Error(
+          tokenErr?.message ||
+          'Layanan pembayaran sedang tidak tersedia. Coba lagi beberapa saat lagi atau hubungi tim kami.'
+        )
       }
 
-      const { token } = await snapTokenRes.json()
+      // 3. Load Snap.js & buka popup
+      await midtransService.loadSnapScript()
 
-      // 3. Load and open Snap
-      await loadMidtrans(MIDTRANS_CLIENT_KEY)
       window.snap.pay(token, {
         onSuccess: async (result) => {
-          await paymentService.update(payment?.id, {
-            status: 'confirmed',
+          await paymentService.update(payment.id, {
+            status: 'settlement',
             midtrans_status: result.transaction_status,
             midtrans_transaction_id: result.transaction_id,
+            midtrans_payment_type: result.payment_type,
           })
-          toast.success('Pembayaran berhasil dikonfirmasi!')
+          toast.success('Pembayaran berhasil! Terima kasih.', { duration: 5000 })
           setPayOpen(false)
           load()
         },
         onPending: async (result) => {
-          await paymentService.update(payment?.id, {
+          await paymentService.update(payment.id, {
             status: 'verification',
             midtrans_status: result.transaction_status,
+            midtrans_transaction_id: result.transaction_id,
+            midtrans_payment_type: result.payment_type,
           })
-          toast('Pembayaran sedang diproses. Selesaikan sesuai instruksi yang diberikan.', { icon: '⏳' })
+          toast('Pembayaran sedang diproses. Selesaikan sesuai instruksi yang diberikan.', { icon: '⏳', duration: 6000 })
           setPayOpen(false)
           load()
         },
-        onError: async () => {
-          await paymentService.update(payment?.id, { status: 'failed' })
+        onError: async (result) => {
+          await paymentService.update(payment.id, {
+            status: 'failed',
+            midtrans_status: result?.status_message || 'error',
+          })
           toast.error('Pembayaran gagal. Silakan coba lagi.')
+          load()
         },
-        onClose: () => {
-          toast('Pembayaran dibatalkan oleh pengguna.')
+        onClose: async () => {
+          // User tutup popup tanpa menyelesaikan — tetap pending
+          toast('Pembayaran belum diselesaikan. Kamu bisa melanjutkan dari riwayat pembayaran.', { icon: 'ℹ️' })
+          setPayOpen(false)
+          load()
         },
       })
     } catch (err) {
-      toast.error(err.message || 'Terjadi kesalahan')
+      console.error('Payment error:', err)
+      toast.error(err.message || 'Terjadi kesalahan saat memproses pembayaran')
     } finally {
       setPaying(false)
     }
   }
 
-  const totalPaid = payments.filter(p => p.status === 'confirmed').reduce((s, p) => s + (p.amount || 0), 0)
+  // Resume payment yang masih pending (snap token expired in 24h, jadi <24h bisa lanjut)
+  const handleResumePending = async (payment) => {
+    if (!payment.midtrans_order_id) {
+      toast.error('Pembayaran ini tidak bisa dilanjutkan otomatis. Hubungi tim kami.')
+      return
+    }
+    setPaying(true)
+    try {
+      const { token, error: tokenErr } = await midtransService.createSnapToken({
+        orderId: payment.midtrans_order_id,
+        grossAmount: payment.amount,
+        customerName: profile.full_name,
+        customerEmail: profile.email,
+        customerPhone: profile.phone,
+        paymentId: payment.id,
+      })
+      if (tokenErr || !token) throw new Error(tokenErr?.message || 'Gagal melanjutkan pembayaran')
+
+      await midtransService.loadSnapScript()
+      window.snap.pay(token, {
+        onSuccess: async (result) => {
+          await paymentService.update(payment.id, {
+            status: 'settlement',
+            midtrans_status: result.transaction_status,
+            midtrans_transaction_id: result.transaction_id,
+            midtrans_payment_type: result.payment_type,
+          })
+          toast.success('Pembayaran berhasil!')
+          load()
+        },
+        onPending: async () => { toast('Pembayaran masih diproses', { icon: '⏳' }); load() },
+        onError: async () => { toast.error('Pembayaran gagal'); load() },
+        onClose: () => { load() },
+      })
+    } catch (err) {
+      toast.error(err.message)
+    } finally {
+      setPaying(false)
+    }
+  }
+
+  const totalPaid = payments.filter(p => CONFIRMED_STATUSES.includes(p.status)).reduce((s, p) => s + (p.amount || 0), 0)
   const pendingCount = payments.filter(p => ['verification', 'pending'].includes(p.status)).length
 
   return (
@@ -198,25 +273,68 @@ export default function PaymentsPage() {
         </div>
 
         {/* Active loans to pay */}
-        {activeLoans.length > 0 && (
+        {loanStats.length > 0 && (
           <Card>
             <h2 className="text-sm font-700 text-slate-900 mb-4">Pinjaman Aktif — Bayar Sekarang</h2>
             <div className="space-y-3">
-              {activeLoans.map(loan => (
-                <div key={loan.id}
-                  className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100">
-                  <div>
-                    <p className="text-sm font-700 text-slate-900">{loan.ref_number}</p>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      Pokok: {formatIDR(loan.amount)} ·{' '}
-                      <span className={loan.status === 'overdue' ? 'text-red-600 font-600' : 'text-slate-400'}>
-                        {loan.status === 'overdue' ? '⚠ Overdue' : 'Aktif'}
-                      </span>
-                    </p>
+              {loanStats.map(stat => {
+                const { loan, eff, totalPaid: paidForLoan, remaining, monthsPaid } = stat
+                const revised = isRevised(loan, true)
+                const progress = eff.totalRepayment > 0
+                  ? Math.min(100, Math.round((paidForLoan / eff.totalRepayment) * 100))
+                  : 0
+                return (
+                  <div key={loan.id} className="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                    <div className="flex items-start justify-between gap-3 mb-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <p className="text-sm font-700 text-slate-900">{loan.ref_number}</p>
+                          <span className={`text-[10px] font-700 px-1.5 py-0.5 rounded ${loan.status === 'overdue' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'
+                            }`}>
+                            {loan.status === 'overdue' ? 'OVERDUE' : 'AKTIF'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-500">
+                          Pokok: <span className="font-600 text-slate-700">{formatIDR(eff.principal)}</span>
+                          {revised && <span className="text-amber-600 ml-1">(direvisi dari {formatIDR(loan.amount)})</span>}
+                          {' · '}
+                          {monthsPaid}/{loan.tenor} cicilan
+                        </p>
+                      </div>
+                      <Button
+                        size="sm"
+                        icon={CreditCard}
+                        onClick={() => openPay(stat)}
+                        disabled={remaining <= 0}
+                      >
+                        {remaining <= 0 ? 'Lunas' : 'Bayar'}
+                      </Button>
+                    </div>
+
+                    {/* Progress + numbers */}
+                    <div className="w-full bg-white rounded-full h-1.5 mb-2 overflow-hidden">
+                      <div
+                        className="bg-emerald-500 h-1.5 rounded-full transition-all"
+                        style={{ width: `${progress}%` }}
+                      />
+                    </div>
+                    <div className="grid grid-cols-3 gap-3 text-xs">
+                      <div>
+                        <p className="text-slate-400">Cicilan/bln</p>
+                        <p className="font-700 text-slate-900">{formatIDR(eff.monthlyInstallment)}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400">Sudah dibayar</p>
+                        <p className="font-700 text-emerald-700">{formatIDR(paidForLoan)}</p>
+                      </div>
+                      <div>
+                        <p className="text-slate-400">Sisa tagihan</p>
+                        <p className="font-700 text-red-600">{formatIDR(remaining)}</p>
+                      </div>
+                    </div>
                   </div>
-                  <Button size="sm" icon={CreditCard} onClick={() => openPay(loan)}>Bayar</Button>
-                </div>
-              ))}
+                )
+              })}
             </div>
           </Card>
         )}
@@ -232,32 +350,48 @@ export default function PaymentsPage() {
               <Th>Order ID</Th>
               <Th>Status</Th>
               <Th>Tanggal</Th>
+              <Th align="center">Aksi</Th>
             </TableHead>
             <TableBody>
               {loading ? (
-                <tr><td colSpan={6} className="py-8 text-center text-sm text-slate-400">Memuat...</td></tr>
+                <tr><td colSpan={7} className="py-8 text-center text-sm text-slate-400">Memuat...</td></tr>
               ) : payments.length === 0 ? (
-                <EmptyRow colSpan={6} message="Belum ada riwayat pembayaran" />
-              ) : payments.map(p => (
-                <Tr key={p.id}>
-                  <Td><span className="font-600 text-xs font-mono text-emerald-700">{p.loans?.ref_number || p.gadai_applications?.ref_number || '-'}</span></Td>
-                  <Td className="font-700">{formatIDR(p.amount)}</Td>
-                  <Td>
-                    <span className={`text-xs font-600 px-2 py-1 rounded-lg ${
-                      p.payment_method === 'midtrans' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
-                    }`}>
-                      {p.payment_method === 'midtrans' ? 'Midtrans' : p.payment_method || 'Transfer'}
-                    </span>
-                  </Td>
-                  <Td className="text-xs font-mono text-slate-400">{p.midtrans_order_id || '-'}</Td>
-                  <Td>
-                    <span className={`text-xs font-600 px-2 py-1 rounded-lg ${STATUS_COLORS[p.status] || STATUS_COLORS.pending}`}>
-                      {STATUS_LABELS[p.status] || p.status}
-                    </span>
-                  </Td>
-                  <Td className="text-xs text-slate-500">{formatDate(p.created_at)}</Td>
-                </Tr>
-              ))}
+                <EmptyRow colSpan={7} message="Belum ada riwayat pembayaran" />
+              ) : payments.map(p => {
+                const isPendingPayment = p.status === 'pending'
+                return (
+                  <Tr key={p.id}>
+                    <Td><span className="font-600 text-xs font-mono text-emerald-700">{p.loans?.ref_number || p.gadai_applications?.ref_number || '-'}</span></Td>
+                    <Td className="font-700">{formatIDR(p.amount)}</Td>
+                    <Td>
+                      <span className={`text-xs font-600 px-2 py-1 rounded-lg ${p.payment_method === 'midtrans' ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'
+                        }`}>
+                        {p.payment_method === 'midtrans' ? 'Midtrans' : p.payment_method || 'Transfer'}
+                      </span>
+                    </Td>
+                    <Td className="text-xs font-mono text-slate-400">{p.midtrans_order_id || '-'}</Td>
+                    <Td>
+                      <span className={`text-xs font-600 px-2 py-1 rounded-lg ${STATUS_COLORS[p.status] || STATUS_COLORS.pending}`}>
+                        {STATUS_LABELS[p.status] || p.status}
+                      </span>
+                    </Td>
+                    <Td className="text-xs text-slate-500">{formatDate(p.created_at)}</Td>
+                    <Td align="center">
+                      {isPendingPayment ? (
+                        <button
+                          onClick={() => handleResumePending(p)}
+                          disabled={paying}
+                          className="text-xs font-600 text-emerald-600 hover:text-emerald-700 disabled:opacity-50"
+                        >
+                          Lanjutkan
+                        </button>
+                      ) : (
+                        <span className="text-xs text-slate-300">—</span>
+                      )}
+                    </Td>
+                  </Tr>
+                )
+              })}
             </TableBody>
           </Table>
         </Card>
@@ -269,8 +403,17 @@ export default function PaymentsPage() {
               <ModalBody>
                 <div className="bg-emerald-50 rounded-xl p-4 mb-5">
                   <p className="text-xs text-emerald-600 font-600 mb-1">Pinjaman</p>
-                  <p className="font-800 text-emerald-900">{selectedLoan.ref_number}</p>
-                  <p className="text-sm text-emerald-700 mt-1">Pokok: {formatIDR(selectedLoan.amount)}</p>
+                  <p className="font-800 text-emerald-900">{selectedLoan.loan.ref_number}</p>
+                  <div className="mt-2 pt-2 border-t border-emerald-100 grid grid-cols-2 gap-2 text-xs">
+                    <div>
+                      <p className="text-emerald-600">Cicilan/bulan</p>
+                      <p className="font-700 text-emerald-900">{formatIDR(selectedLoan.eff.monthlyInstallment)}</p>
+                    </div>
+                    <div>
+                      <p className="text-emerald-600">Sisa tagihan</p>
+                      <p className="font-700 text-emerald-900">{formatIDR(selectedLoan.remaining)}</p>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="mb-4">
@@ -282,13 +425,32 @@ export default function PaymentsPage() {
                     onChange={e => setAmount(e.target.value)}
                     placeholder="Masukkan nominal yang ingin dibayar"
                     min={1}
+                    max={selectedLoan.remaining}
                   />
-                  <p className="text-xs text-slate-400 mt-1">Anda akan diarahkan ke halaman pembayaran yang aman melalui Midtrans</p>
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => setAmount(String(selectedLoan.eff.monthlyInstallment))}
+                      className="text-xs font-600 text-emerald-600 hover:text-emerald-700 px-2 py-1 rounded bg-emerald-50"
+                    >
+                      Cicilan/bulan
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAmount(String(selectedLoan.remaining))}
+                      className="text-xs font-600 text-emerald-600 hover:text-emerald-700 px-2 py-1 rounded bg-emerald-50"
+                    >
+                      Lunasi semua
+                    </button>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-2 p-3 bg-blue-50 rounded-xl">
-                  <CreditCard size={14} className="text-blue-600 flex-shrink-0" />
-                  <p className="text-xs text-blue-700">Mendukung Transfer Bank, QRIS, Virtual Account, dan kartu kredit melalui Midtrans Snap.</p>
+                <div className="flex items-start gap-2 p-3 bg-blue-50 rounded-xl">
+                  <CreditCard size={14} className="text-blue-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-blue-700">
+                    Pembayaran via Midtrans Snap. Mendukung Transfer Bank, QRIS, Virtual Account, e-wallet, dan kartu kredit.
+                    Setelah selesai, status pembayaran akan diperbarui otomatis.
+                  </p>
                 </div>
               </ModalBody>
               <ModalFooter>

@@ -4,9 +4,9 @@ import { DashboardLayout } from '../../components/layout/DashboardLayout'
 import { Card } from '../../components/ui/Card'
 import { StatusBadge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
-import { loanService, paymentService } from '../../services'
+import { loanService, paymentService, midtransService } from '../../services'
 import { useAuth } from '../../contexts/AuthContext'
-import { formatIDR, formatDate, formatDateTime, getEffectiveAmount, isRevised } from '../../lib/utils'
+import { formatIDR, formatDate, formatDateTime, getEffectiveAmount, isRevised, getEffectiveLoanNumbers, generateRefNumber } from '../../lib/utils'
 import {
   ArrowLeft, AlertCircle, CheckCircle, Clock, Banknote, CreditCard,
   Calendar, TrendingUp, FileText, Building2, User, Phone, Shield,
@@ -40,10 +40,10 @@ function SectionCard({ title, icon: Icon, children, className = '' }) {
 }
 
 const STATUS_STEPS = [
-  { key: 'pending',   label: 'Diajukan',    icon: FileText },
-  { key: 'review',    label: 'Direview',    icon: Clock },
-  { key: 'approved',  label: 'Disetujui',   icon: CheckCircle },
-  { key: 'disbursed', label: 'Dicairkan',   icon: Banknote },
+  { key: 'pending', label: 'Diajukan', icon: FileText },
+  { key: 'review', label: 'Direview', icon: Clock },
+  { key: 'approved', label: 'Disetujui', icon: CheckCircle },
+  { key: 'disbursed', label: 'Dicairkan', icon: Banknote },
 ]
 
 const TERMINAL_STATUS = { rejected: 'Ditolak', completed: 'Lunas', overdue: 'Telat Bayar' }
@@ -77,37 +77,112 @@ export default function LoanDetailPage() {
 
   useEffect(() => { load() }, [id, profile])
 
+  // ── Effective numbers (otomatis correct meski data lama belum direkalkulasi) ─
+  // Untuk semua angka finansial (cicilan, total bayar, sisa, progress), pakai
+  // numbers ini, BUKAN langsung loan.* — supaya konsisten dengan approved_amount.
+  const eff = loan ? getEffectiveLoanNumbers(loan) : { totalRepayment: 0, monthlyInstallment: 0, netDisbursement: 0, totalInterest: 0, platformFee: 0, principal: 0 }
+
   const totalPaid = payments.filter(p => ['confirmed', 'settlement', 'capture'].includes(p.status))
     .reduce((s, p) => s + (p.amount || 0), 0)
-  const remaining = Math.max(0, (loan?.total_repayment || 0) - totalPaid)
-  const progress = loan?.total_repayment ? Math.min(100, Math.round((totalPaid / loan.total_repayment) * 100)) : 0
+  const remaining = Math.max(0, eff.totalRepayment - totalPaid)
+  const progress = eff.totalRepayment ? Math.min(100, Math.round((totalPaid / eff.totalRepayment) * 100)) : 0
 
   const handlePay = async () => {
     const amt = Number(payAmount)
     if (!amt || amt <= 0) { toast.error('Masukkan nominal pembayaran yang valid'); return }
     if (amt > remaining) { toast.error('Nominal melebihi sisa tagihan'); return }
     setPaying(true)
-    // Create payment record → pending → Midtrans will handle confirmation
-    const { data: payment, error } = await paymentService.create({
-      user_id: profile.id,
-      loan_id: id,
-      amount: amt,
-      payment_method: 'midtrans',
-      status: 'pending',
-    })
-    if (error) {
-      toast.error('Gagal membuat order pembayaran. Coba lagi.')
+
+    try {
+      // 1. Buat record payment di DB (status: pending)
+      const orderId = `PAY-${generateRefNumber()}`
+      const { data: payment, error: createErr } = await paymentService.create({
+        user_id: profile.id,
+        loan_id: id,
+        amount: amt,
+        payment_type: 'repayment',
+        payment_method: 'midtrans',
+        midtrans_order_id: orderId,
+        status: 'pending',
+      })
+      if (createErr || !payment) {
+        throw new Error(createErr?.message || 'Gagal membuat order pembayaran')
+      }
+
+      // 2. Request Snap token via Edge Function
+      const { token, error: tokenErr } = await midtransService.createSnapToken({
+        orderId,
+        grossAmount: amt,
+        customerName: profile.full_name,
+        customerEmail: profile.email,
+        customerPhone: profile.phone,
+        paymentId: payment.id,
+        itemDetails: [{
+          id: loan.id,
+          price: amt,
+          quantity: 1,
+          name: `Cicilan ${loan.ref_number}`.slice(0, 50),
+        }],
+      })
+      if (tokenErr || !token) {
+        await paymentService.update(payment.id, {
+          status: 'failed',
+          notes: `Gagal mendapatkan token Midtrans: ${tokenErr?.message || 'unknown'}`,
+        })
+        throw new Error(
+          tokenErr?.message ||
+          'Layanan pembayaran sedang tidak tersedia. Coba lagi beberapa saat lagi.'
+        )
+      }
+
+      // 3. Load Snap & open popup
+      await midtransService.loadSnapScript()
+
+      window.snap.pay(token, {
+        onSuccess: async (result) => {
+          await paymentService.update(payment.id, {
+            status: 'settlement',
+            midtrans_status: result.transaction_status,
+            midtrans_transaction_id: result.transaction_id,
+            midtrans_payment_type: result.payment_type,
+          })
+          toast.success('Pembayaran berhasil! Terima kasih.', { duration: 5000 })
+          setPayOpen(false)
+          setPayAmount('')
+          load()
+        },
+        onPending: async (result) => {
+          await paymentService.update(payment.id, {
+            status: 'verification',
+            midtrans_status: result.transaction_status,
+            midtrans_transaction_id: result.transaction_id,
+            midtrans_payment_type: result.payment_type,
+          })
+          toast('Pembayaran sedang diproses. Selesaikan sesuai instruksi yang diberikan.', { icon: '⏳', duration: 6000 })
+          setPayOpen(false)
+          setPayAmount('')
+          load()
+        },
+        onError: async (result) => {
+          await paymentService.update(payment.id, {
+            status: 'failed',
+            midtrans_status: result?.status_message || 'error',
+          })
+          toast.error('Pembayaran gagal. Silakan coba lagi.')
+          load()
+        },
+        onClose: () => {
+          toast('Pembayaran belum diselesaikan. Kamu bisa melanjutkan dari menu Pembayaran.', { icon: 'ℹ️' })
+          setPayOpen(false)
+          load()
+        },
+      })
+    } catch (err) {
+      console.error('Payment error:', err)
+      toast.error(err.message || 'Terjadi kesalahan saat memproses pembayaran')
+    } finally {
       setPaying(false)
-      return
     }
-    // In production: call /api/midtrans/create-transaction → get snap token → window.snap.pay(token)
-    // For now: mark as verification (manual confirm by admin)
-    await paymentService.update(payment.id, { status: 'verification' })
-    toast.success('Pembayaran berhasil dicatat. Tim kami akan mengkonfirmasi dalam 1×24 jam.', { duration: 6000 })
-    setPayOpen(false)
-    setPayAmount('')
-    load()
-    setPaying(false)
   }
 
   // ── Render states ─────────────────────────────────────────────────────────
@@ -143,16 +218,16 @@ export default function LoanDetailPage() {
   const schedule = loan.loan_schedules?.length > 0
     ? loan.loan_schedules
     : Array.from({ length: loan.tenor || 0 }, (_, i) => {
-        const due = new Date(loan.disbursed_at || loan.created_at)
-        due.setMonth(due.getMonth() + i + 1)
-        return {
-          month: i + 1,
-          due_date: due.toISOString(),
-          total: loan.monthly_installment,
-          status: 'pending',
-          id: `calc-${i}`,
-        }
-      })
+      const due = new Date(loan.disbursed_at || loan.created_at)
+      due.setMonth(due.getMonth() + i + 1)
+      return {
+        month: i + 1,
+        due_date: due.toISOString(),
+        total: eff.monthlyInstallment,
+        status: 'pending',
+        id: `calc-${i}`,
+      }
+    })
 
   const currentStep = STATUS_STEPS.findIndex(s => s.key === loan.status)
 
@@ -200,14 +275,12 @@ export default function LoanDetailPage() {
                 return (
                   <div key={step.key} className="flex items-center flex-1">
                     <div className={`flex flex-col items-center gap-1.5 flex-1 ${i < STATUS_STEPS.length - 1 ? '' : ''}`}>
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${
-                        done ? 'bg-emerald-500' : active ? 'bg-emerald-100 ring-2 ring-emerald-400' : 'bg-slate-100'
-                      }`}>
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center transition-all ${done ? 'bg-emerald-500' : active ? 'bg-emerald-100 ring-2 ring-emerald-400' : 'bg-slate-100'
+                        }`}>
                         <Icon size={14} className={done ? 'text-white' : active ? 'text-emerald-600' : 'text-slate-400'} />
                       </div>
-                      <p className={`text-[10px] font-600 text-center leading-tight ${
-                        done ? 'text-emerald-600' : active ? 'text-emerald-700' : 'text-slate-400'
-                      }`}>{step.label}</p>
+                      <p className={`text-[10px] font-600 text-center leading-tight ${done ? 'text-emerald-600' : active ? 'text-emerald-700' : 'text-slate-400'
+                        }`}>{step.label}</p>
                     </div>
                     {i < STATUS_STEPS.length - 1 && (
                       <div className={`h-0.5 flex-1 mx-1 -mt-4 ${i < currentStep ? 'bg-emerald-400' : 'bg-slate-200'}`} />
@@ -259,9 +332,8 @@ export default function LoanDetailPage() {
           <Card className="border-emerald-100 bg-gradient-to-br from-emerald-50/50 to-white">
             <div className="flex items-center justify-between mb-3">
               <p className="text-sm font-700 text-slate-900">Progress Pelunasan</p>
-              <span className={`text-xs font-700 px-2 py-0.5 rounded-full ${
-                loan.status === 'overdue' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'
-              }`}>
+              <span className={`text-xs font-700 px-2 py-0.5 rounded-full ${loan.status === 'overdue' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'
+                }`}>
                 {loan.status === 'overdue' ? '⚠ Telat Bayar' : 'Aktif'}
               </span>
             </div>
@@ -279,11 +351,11 @@ export default function LoanDetailPage() {
               </div>
               <div className="p-3 bg-white rounded-xl border border-slate-100">
                 <p className="text-xs text-slate-400">Cicilan / Bulan</p>
-                <p className="font-800 text-slate-900 text-lg mt-0.5">{formatIDR(loan.monthly_installment)}</p>
+                <p className="font-800 text-slate-900 text-lg mt-0.5">{formatIDR(eff.monthlyInstallment)}</p>
               </div>
             </div>
             {!payOpen ? (
-              <Button icon={CreditCard} onClick={() => { setPayOpen(true); setPayAmount(String(loan.monthly_installment || '')) }}
+              <Button icon={CreditCard} onClick={() => { setPayOpen(true); setPayAmount(String(eff.monthlyInstallment || '')) }}
                 className="w-full">
                 Bayar Cicilan Sekarang
               </Button>
@@ -332,16 +404,16 @@ export default function LoanDetailPage() {
         <SectionCard title="Detail Pinjaman" icon={Banknote}>
           <InfoGrid items={[
             isRevised(loan, true) && { label: 'Jumlah Diajukan', value: <span className="line-through text-slate-400">{formatIDR(loan.amount)}</span> },
-            { label: isRevised(loan, true) ? 'Jumlah Disetujui' : 'Jumlah Pinjaman', value: <span className={isRevised(loan, true) ? 'text-amber-700 font-800' : ''}>{formatIDR(getEffectiveAmount(loan, true))}</span> },
+            { label: isRevised(loan, true) ? 'Jumlah Disetujui' : 'Jumlah Pinjaman', value: <span className={isRevised(loan, true) ? 'text-amber-700 font-800' : ''}>{formatIDR(eff.principal)}</span> },
             { label: 'Tenor', value: `${loan.tenor} bulan` },
-            { label: 'Bunga (5%/bln)', value: formatIDR(loan.total_interest) },
-            { label: 'Biaya Admin', value: formatIDR(loan.platform_fee) },
-            { label: 'Dana Diterima', value: formatIDR(loan.net_disbursement), highlight: true },
-            { label: 'Cicilan / Bulan', value: formatIDR(loan.monthly_installment) },
-            { label: 'Total yang Dibayar', value: formatIDR(loan.total_repayment) },
+            { label: 'Bunga (5%/bln)', value: formatIDR(eff.totalInterest) },
+            { label: 'Biaya Admin', value: formatIDR(eff.platformFee) },
+            { label: 'Dana Diterima', value: formatIDR(eff.netDisbursement), highlight: true },
+            { label: 'Cicilan / Bulan', value: formatIDR(eff.monthlyInstallment) },
+            { label: 'Total yang Dibayar', value: formatIDR(eff.totalRepayment) },
             loan.disbursed_at && { label: 'Tanggal Cair', value: formatDate(loan.disbursed_at) },
             loan.disbursement_ref && { label: 'Ref Transfer', value: loan.disbursement_ref, full: true },
-          ]}/>
+          ]} />
         </SectionCard>
 
         {/* ── Repayment Schedule ── */}
@@ -356,15 +428,13 @@ export default function LoanDetailPage() {
                   .reduce((sum, p) => sum + (p.amount || 0), 0)
 
                 return (
-                  <div key={s.id} className={`flex items-center justify-between px-4 py-3 rounded-xl transition-all ${
-                    isPaid ? 'bg-emerald-50 border border-emerald-100' :
+                  <div key={s.id} className={`flex items-center justify-between px-4 py-3 rounded-xl transition-all ${isPaid ? 'bg-emerald-50 border border-emerald-100' :
                     isOverdue ? 'bg-red-50 border border-red-100' :
-                    'bg-slate-50 border border-slate-100'
-                  }`}>
+                      'bg-slate-50 border border-slate-100'
+                    }`}>
                     <div className="flex items-center gap-3">
-                      <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${
-                        isPaid ? 'bg-emerald-500' : isOverdue ? 'bg-red-400' : 'bg-slate-200'
-                      }`}>
+                      <div className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 ${isPaid ? 'bg-emerald-500' : isOverdue ? 'bg-red-400' : 'bg-slate-200'
+                        }`}>
                         {isPaid
                           ? <CheckCircle size={12} className="text-white" />
                           : <span className="text-[10px] font-700 text-slate-600">{s.month}</span>
@@ -399,7 +469,7 @@ export default function LoanDetailPage() {
             {/* Summary row */}
             <div className="mt-3 pt-3 border-t border-slate-100 flex justify-between items-center">
               <span className="text-xs text-slate-500">Total Kewajiban</span>
-              <span className="font-800 text-slate-900">{formatIDR(loan.total_repayment)}</span>
+              <span className="font-800 text-slate-900">{formatIDR(eff.totalRepayment)}</span>
             </div>
           </SectionCard>
         )}
@@ -438,18 +508,16 @@ export default function LoanDetailPage() {
                 const isConfirmed = ['confirmed', 'settlement', 'capture'].includes(p.status)
                 const isPending = ['pending', 'verification'].includes(p.status)
                 return (
-                  <div key={p.id} className={`flex items-center justify-between px-3 py-2.5 rounded-xl ${
-                    isConfirmed ? 'bg-emerald-50' : isPending ? 'bg-amber-50' : 'bg-slate-50'
-                  }`}>
+                  <div key={p.id} className={`flex items-center justify-between px-3 py-2.5 rounded-xl ${isConfirmed ? 'bg-emerald-50' : isPending ? 'bg-amber-50' : 'bg-slate-50'
+                    }`}>
                     <div>
                       <p className="text-sm font-600 text-slate-800">{formatIDR(p.amount)}</p>
                       <p className="text-xs text-slate-400">{formatDateTime(p.created_at)}</p>
                     </div>
                     <div className="text-right">
-                      <span className={`text-xs font-700 px-2 py-0.5 rounded-full ${
-                        isConfirmed ? 'bg-emerald-100 text-emerald-700' :
+                      <span className={`text-xs font-700 px-2 py-0.5 rounded-full ${isConfirmed ? 'bg-emerald-100 text-emerald-700' :
                         isPending ? 'bg-amber-100 text-amber-700' : 'bg-red-100 text-red-700'
-                      }`}>
+                        }`}>
                         {isConfirmed ? 'Dikonfirmasi' : isPending ? 'Menunggu' : 'Gagal'}
                       </span>
                       {p.midtrans_order_id && <p className="text-xs text-slate-400 mt-0.5 font-mono">{p.midtrans_order_id}</p>}

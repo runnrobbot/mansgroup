@@ -482,3 +482,70 @@ export const analyticsService = {
   },
 
 }
+
+// ─── Midtrans ─────────────────────────────────────────────────────────────────
+//
+// Frontend TIDAK BOLEH punya Midtrans Server Key (akan bocor di JS bundle).
+// Snap token harus di-generate di backend, di sini kami pakai Supabase Edge Function.
+//
+// Env yang dipakai oleh frontend:
+//   VITE_MIDTRANS_CLIENT_KEY    → client key (publik, aman di-expose)
+//   VITE_MIDTRANS_SNAP_URL      → snap.js URL (default: production app.midtrans.com)
+//
+// Edge function ada di: supabase/functions/midtrans-snap/index.ts
+export const midtransService = {
+  /**
+   * Request Snap token dari Supabase Edge Function.
+   * Edge function akan create transaction ke Midtrans pakai server key
+   * (yang aman karena di server-side), lalu return { token, redirect_url }.
+   */
+  async createSnapToken({ orderId, grossAmount, customerName, customerEmail, customerPhone, itemDetails, paymentId }) {
+    const { data, error } = await supabase.functions.invoke('midtrans-snap', {
+      body: {
+        order_id: orderId,
+        gross_amount: grossAmount,
+        customer_details: {
+          first_name: customerName || 'Customer',
+          email: customerEmail,
+          phone: customerPhone,
+        },
+        item_details: itemDetails || [{
+          id: paymentId || orderId,
+          price: grossAmount,
+          quantity: 1,
+          name: 'Pembayaran Cicilan',
+        }],
+        // payment_id dipakai webhook untuk identify record yang harus di-update
+        custom_field1: paymentId,
+      },
+    })
+    if (error) return { token: null, error }
+    if (!data?.token) return { token: null, error: new Error(data?.message || 'Gagal mendapatkan token pembayaran') }
+    return { token: data.token, redirectUrl: data.redirect_url, error: null }
+  },
+
+  /**
+   * Load Midtrans Snap.js secara dinamis. Idempotent — kalau sudah loaded, langsung resolve.
+   */
+  loadSnapScript() {
+    return new Promise((resolve, reject) => {
+      if (window.snap) return resolve()
+      const existing = document.querySelector('script[data-midtrans]')
+      if (existing) {
+        existing.addEventListener('load', () => resolve())
+        existing.addEventListener('error', () => reject(new Error('Gagal memuat skrip pembayaran')))
+        return
+      }
+      const clientKey = import.meta.env.VITE_MIDTRANS_CLIENT_KEY
+      if (!clientKey) return reject(new Error('Konfigurasi pembayaran belum lengkap. Hubungi tim kami.'))
+      const snapUrl = import.meta.env.VITE_MIDTRANS_SNAP_URL || 'https://app.midtrans.com/snap/snap.js'
+      const script = document.createElement('script')
+      script.src = snapUrl
+      script.setAttribute('data-client-key', clientKey)
+      script.setAttribute('data-midtrans', 'true')
+      script.onload = () => resolve()
+      script.onerror = () => reject(new Error('Gagal memuat skrip pembayaran Midtrans'))
+      document.head.appendChild(script)
+    })
+  },
+}

@@ -13,18 +13,18 @@ import { Plus, Eye, RefreshCw, AlertTriangle, Calendar, Package, Lock, Clock, Ar
 import toast from 'react-hot-toast'
 
 const STATUS_INFO = {
-  pending:         { label: 'Menunggu Review',       color: 'bg-slate-100 text-slate-600' },
-  review:          { label: 'Direview Staff',         color: 'bg-blue-50 text-blue-700' },
-  waiting_pickup:  { label: 'Menunggu Penjemputan',   color: 'bg-amber-50 text-amber-700' },
-  picked_up:       { label: 'Barang Dijemput',        color: 'bg-violet-50 text-violet-700' },
-  received:        { label: 'Diterima Warehouse',     color: 'bg-blue-50 text-blue-700' },
-  active:          { label: 'Aktif Digadai',          color: 'bg-emerald-50 text-emerald-700' },
-  due:             { label: 'Jatuh Tempo',            color: 'bg-amber-50 text-amber-700' },
-  extended:        { label: 'Diperpanjang',           color: 'bg-teal-50 text-teal-700' },
-  overdue:         { label: 'Telat Bayar',            color: 'bg-red-50 text-red-700' },
-  completed:       { label: 'Lunas',                  color: 'bg-emerald-100 text-emerald-800' },
-  forfeited:       { label: 'Disita',                 color: 'bg-red-100 text-red-800' },
-  rejected:        { label: 'Ditolak',                color: 'bg-red-50 text-red-700' },
+  pending: { label: 'Menunggu Review', color: 'bg-slate-100 text-slate-600' },
+  review: { label: 'Direview Staff', color: 'bg-blue-50 text-blue-700' },
+  waiting_pickup: { label: 'Menunggu Penjemputan', color: 'bg-amber-50 text-amber-700' },
+  picked_up: { label: 'Barang Dijemput', color: 'bg-violet-50 text-violet-700' },
+  received: { label: 'Diterima Warehouse', color: 'bg-blue-50 text-blue-700' },
+  active: { label: 'Aktif Digadai', color: 'bg-emerald-50 text-emerald-700' },
+  due: { label: 'Jatuh Tempo', color: 'bg-amber-50 text-amber-700' },
+  extended: { label: 'Diperpanjang', color: 'bg-teal-50 text-teal-700' },
+  overdue: { label: 'Telat Bayar', color: 'bg-red-50 text-red-700' },
+  completed: { label: 'Lunas', color: 'bg-emerald-100 text-emerald-800' },
+  forfeited: { label: 'Disita', color: 'bg-red-100 text-red-800' },
+  rejected: { label: 'Ditolak', color: 'bg-red-50 text-red-700' },
 }
 
 export default function MyGadaiPage() {
@@ -67,10 +67,13 @@ export default function MyGadaiPage() {
   const pendingGadai = pendingGadais[0] || null
 
   const handleExtend = async (gadai) => {
-    const sim = calculateGadaiSimulation(gadai.loan_amount || 0)
+    // Biaya perpanjangan dihitung dari nilai yang disetujui (approved_amount),
+    // bukan dari pengajuan asli — penting kalau ada revisi limit.
+    const effectivePrincipal = getEffectiveAmount(gadai, false)
+    const sim = calculateGadaiSimulation(effectivePrincipal)
     const ok = await confirm({
       title: 'Perpanjang Gadai?',
-      message: `Masa gadai akan diperpanjang 1 bulan dengan biaya perpanjangan ${formatIDR(sim.extensionFee)} (10% dari nilai pinjaman).`,
+      message: `Masa gadai akan diperpanjang 1 bulan dengan biaya perpanjangan ${formatIDR(sim.extensionFee)} (10% dari nilai pinjaman ${formatIDR(effectivePrincipal)}).`,
       variant: 'warning',
       confirmLabel: 'Ya, Perpanjang',
     })
@@ -182,9 +185,8 @@ export default function MyGadaiPage() {
       const wasRevised = isRevised(pendingGadai, false)
       const isApproved = pendingGadai.status === 'approved'
       return (
-        <div className={`flex items-start gap-3 p-4 rounded-2xl ${
-          isApproved ? 'bg-emerald-50 border border-emerald-100' : 'bg-amber-50 border border-amber-100'
-        }`}>
+        <div className={`flex items-start gap-3 p-4 rounded-2xl ${isApproved ? 'bg-emerald-50 border border-emerald-100' : 'bg-amber-50 border border-amber-100'
+          }`}>
           <Clock size={16} className={`flex-shrink-0 mt-0.5 ${isApproved ? 'text-emerald-500' : 'text-amber-500'}`} />
           <div className="flex-1">
             <p className={`text-sm font-700 ${isApproved ? 'text-emerald-800' : 'text-amber-800'}`}>
@@ -205,9 +207,8 @@ export default function MyGadaiPage() {
           </div>
           <button
             onClick={() => { setSelected(pendingGadai); setDetailOpen(true) }}
-            className={`ml-auto text-xs font-600 flex items-center gap-1 whitespace-nowrap ${
-              isApproved ? 'text-emerald-700 hover:text-emerald-800' : 'text-amber-600 hover:text-amber-700'
-            }`}
+            className={`ml-auto text-xs font-600 flex items-center gap-1 whitespace-nowrap ${isApproved ? 'text-emerald-700 hover:text-emerald-800' : 'text-amber-600 hover:text-amber-700'
+              }`}
           >
             Lihat <ArrowRight size={12} />
           </button>
@@ -385,11 +386,11 @@ export default function MyGadaiPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   {[
-                    { label: 'Ref. Nomor',        value: selected.ref_number || '-' },
-                    { label: 'Nilai Diajukan',    value: formatIDR(selected.loan_amount) },
-                    { label: 'Nilai Disetujui',   value: <span className={isRevised(selected, false) ? 'text-amber-700 font-800' : ''}>{formatIDR(getEffectiveAmount(selected, false))}</span> },
-                    { label: 'Jatuh Tempo',       value: selected.due_date ? formatDate(selected.due_date) : '-' },
-                    { label: 'Jadwal Pickup',     value: selected.pickup_schedule ? formatDateTime(selected.pickup_schedule) : '-' },
+                    { label: 'Ref. Nomor', value: selected.ref_number || '-' },
+                    { label: 'Nilai Diajukan', value: formatIDR(selected.loan_amount) },
+                    { label: 'Nilai Disetujui', value: <span className={isRevised(selected, false) ? 'text-amber-700 font-800' : ''}>{formatIDR(getEffectiveAmount(selected, false))}</span> },
+                    { label: 'Jatuh Tempo', value: selected.due_date ? formatDate(selected.due_date) : '-' },
+                    { label: 'Jadwal Pickup', value: selected.pickup_schedule ? formatDateTime(selected.pickup_schedule) : '-' },
                     { label: 'Tanggal Pengajuan', value: formatDateTime(selected.created_at) },
                     { label: 'Biaya Perpanjangan', value: formatIDR(getEffectiveAmount(selected, false) * 0.1) },
                   ].map(({ label, value }) => (

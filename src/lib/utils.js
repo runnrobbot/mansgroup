@@ -273,3 +273,115 @@ export function isRevised(item, isLoan = true) {
   const eff = getEffectiveAmount(item, isLoan)
   return orig > 0 && eff > 0 && orig !== eff
 }
+
+/**
+ * Return field finansial yang KONSISTEN dengan effective amount.
+ *
+ * Untuk data yang sudah direvisi tapi field turunannya belum di-update
+ * (data lama sebelum fix recalc, atau data yang amount-nya berubah),
+ * helper ini selalu menjamin angka yang ditampilkan ke user benar.
+ *
+ * Kalau item.monthly_installment dan friends sudah sinkron dengan
+ * effective amount (kasus normal post-fix), helper ini tetap return
+ * angka yang sama — jadi aman dipakai dimana saja.
+ *
+ * @param {object} loan - record dari tabel `loans`
+ * @returns {{ principal, totalInterest, platformFee, netDisbursement, totalRepayment, monthlyInstallment }}
+ */
+export function getEffectiveLoanNumbers(loan) {
+  if (!loan) {
+    return { principal: 0, totalInterest: 0, platformFee: 0, netDisbursement: 0, totalRepayment: 0, monthlyInstallment: 0 }
+  }
+  const effective = getEffectiveAmount(loan, true)
+  const original = Number(loan.amount) || 0
+
+  // Kalau effective === original, semua field turunan sudah pas dari pengajuan awal,
+  // langsung pakai field yang ada di record.
+  if (effective === original && original > 0) {
+    return {
+      principal: effective,
+      totalInterest: Number(loan.total_interest) || 0,
+      platformFee: Number(loan.platform_fee) || 0,
+      netDisbursement: Number(loan.net_disbursement) || 0,
+      totalRepayment: Number(loan.total_repayment) || 0,
+      monthlyInstallment: Number(loan.monthly_installment) || 0,
+    }
+  }
+
+  // Effective berbeda dari original (direvisi). Cek apakah field turunan
+  // sudah sinkron dengan effective. Pakai monthly_installment sebagai signal:
+  // kalau monthly_installment masih mencerminkan original, kita rekalkulasi.
+  const sim = calculateLoanSimulation(effective, loan.tenor || 1, loan.bank_code, false)
+
+  // Kalau field di DB sudah match recalc (artinya AdminApprovals sudah rekalkulasi),
+  // pakai field DB. Kalau tidak, pakai hasil rekalkulasi.
+  const dbMonthly = Number(loan.monthly_installment) || 0
+  const recalcMonthly = sim.monthlyInstallment
+  // Tolerance kecil utk pembulatan
+  const matchesEffective = Math.abs(dbMonthly - recalcMonthly) < 2
+
+  if (matchesEffective) {
+    return {
+      principal: effective,
+      totalInterest: Number(loan.total_interest) || 0,
+      platformFee: Number(loan.platform_fee) || 0,
+      netDisbursement: Number(loan.net_disbursement) || 0,
+      totalRepayment: Number(loan.total_repayment) || 0,
+      monthlyInstallment: dbMonthly,
+    }
+  }
+
+  // Fallback: rekalkulasi on-the-fly
+  return {
+    principal: effective,
+    totalInterest: sim.totalInterest,
+    platformFee: sim.platformFee,
+    netDisbursement: sim.netDisbursement,
+    totalRepayment: sim.totalRepayment,
+    monthlyInstallment: sim.monthlyInstallment,
+  }
+}
+
+/** Versi gadai dari helper di atas. */
+export function getEffectiveGadaiNumbers(gadai) {
+  if (!gadai) {
+    return { principal: 0, interest: 0, platformFee: 0, netDisbursement: 0, totalRepayment: 0, extensionFee: 0 }
+  }
+  const effective = getEffectiveAmount(gadai, false)
+  const original = Number(gadai.loan_amount) || 0
+
+  if (effective === original && original > 0) {
+    return {
+      principal: effective,
+      interest: Number(gadai.interest) || 0,
+      platformFee: Number(gadai.platform_fee) || 0,
+      netDisbursement: Number(gadai.net_disbursement) || 0,
+      totalRepayment: Number(gadai.total_repayment) || 0,
+      extensionFee: Number(gadai.extension_fee) || 0,
+    }
+  }
+
+  const sim = calculateGadaiSimulation(effective, gadai.bank_code)
+  const dbInterest = Number(gadai.interest) || 0
+  const matchesEffective = Math.abs(dbInterest - sim.interest) < 2
+
+  if (matchesEffective) {
+    return {
+      principal: effective,
+      interest: dbInterest,
+      platformFee: Number(gadai.platform_fee) || 0,
+      netDisbursement: Number(gadai.net_disbursement) || 0,
+      totalRepayment: Number(gadai.total_repayment) || 0,
+      extensionFee: Number(gadai.extension_fee) || 0,
+    }
+  }
+
+  return {
+    principal: effective,
+    interest: sim.interest,
+    platformFee: sim.platformFee,
+    netDisbursement: sim.netDisbursement,
+    totalRepayment: sim.totalRepayment,
+    extensionFee: sim.extensionFee,
+  }
+}

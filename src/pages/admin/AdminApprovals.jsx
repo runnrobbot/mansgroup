@@ -7,7 +7,7 @@ import { Modal, ModalBody, ModalFooter } from '../../components/ui/Modal'
 import { Button } from '../../components/ui/Button'
 import { useConfirm } from '../../components/ui/ConfirmModal'
 import { loanService, gadaiService, notificationService, documentService } from '../../services'
-import { formatIDR, formatDate, formatDateTime } from '../../lib/utils'
+import { formatIDR, formatDate, formatDateTime, calculateLoanSimulation, calculateGadaiSimulation } from '../../lib/utils'
 import { useAuth } from '../../contexts/AuthContext'
 import { Eye, CheckCircle, XCircle, Banknote, CreditCard, Package, ExternalLink, AlertTriangle, Building2, ImagePlus, X } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -124,6 +124,7 @@ export default function AdminApprovals() {
     // kalau tidak pakai jumlah asli — supaya semua downstream UI bisa baca approved_amount sebagai source of truth.
     const originalAmount = isLoan ? selected.amount : selected.loan_amount
     const finalApprovedAmount = selected.suggested_amount ?? originalAmount
+    const wasRevised = finalApprovedAmount !== originalAmount
 
     const baseUpdate = {
       status: 'approved',
@@ -136,11 +137,39 @@ export default function AdminApprovals() {
       baseUpdate.approved_at = new Date().toISOString()
     }
 
+    // ── REKALKULASI FIELD FINANSIAL JIKA ADA REVISI ──────────────────────────
+    // Saat staff revisi limit, semua field turunan (bunga, cicilan, total bayar, dana cair)
+    // HARUS dihitung ulang dari approved_amount — kalau tidak, user akan tetap lihat
+    // angka berdasarkan nilai pengajuan asli yang sudah tidak relevan.
+    if (wasRevised) {
+      if (isLoan) {
+        const sim = calculateLoanSimulation(
+          finalApprovedAmount,
+          selected.tenor,
+          selected.bank_code,
+          // reward_eligible tidak ada di loan record, fallback ke false
+          false
+        )
+        baseUpdate.total_interest = sim.totalInterest
+        baseUpdate.platform_fee = sim.platformFee
+        baseUpdate.net_disbursement = sim.netDisbursement
+        baseUpdate.total_repayment = sim.totalRepayment
+        baseUpdate.monthly_installment = sim.monthlyInstallment
+        baseUpdate.remaining_amount = sim.totalRepayment
+      } else {
+        const sim = calculateGadaiSimulation(finalApprovedAmount, selected.bank_code)
+        baseUpdate.interest = sim.interest
+        baseUpdate.platform_fee = sim.platformFee
+        baseUpdate.net_disbursement = sim.netDisbursement
+        baseUpdate.total_repayment = sim.totalRepayment
+        baseUpdate.extension_fee = sim.extensionFee
+      }
+    }
+
     const svc = isLoan ? loanService : gadaiService
     const { error } = await svc.updateFull(selected.id, baseUpdate)
 
     if (!error && selected.user_id) {
-      const wasRevised = selected.suggested_amount && selected.suggested_amount !== originalAmount
       const msg = wasRevised
         ? `Pengajuan ${selected.ref_number} disetujui dengan nilai ${formatIDR(finalApprovedAmount)} (direvisi dari ${formatIDR(originalAmount)} sesuai penilaian tim kami). Dana akan segera dicairkan.`
         : `Pengajuan ${selected.ref_number} telah disetujui dengan nilai ${formatIDR(finalApprovedAmount)}. Tim kami akan segera memproses pencairan.`
@@ -238,14 +267,39 @@ export default function AdminApprovals() {
     // For loans: status → disbursed
     const newStatus = isLoan ? 'disbursed' : 'waiting_pickup'
 
-    const { error } = await svc.updateFull(selected.id, {
+    const disburseUpdate = {
       status: newStatus,
       disbursed_at: new Date().toISOString(),
       disbursement_ref: disburseRef.trim() || null,
-      net_disbursement: amt,
       approved_by: profile?.id,
       updated_at: new Date().toISOString(),
-    })
+    }
+
+    // Kalau jumlah yang dicairkan beda dari approved_amount (admin adjustment di saat akhir),
+    // anggap `amt` sebagai final principal dan rekalkulasi semua field finansial ulang.
+    // Kalau sama, biarkan field-field dari handleApprove (sudah benar).
+    const currentApproved = selected.approved_amount || (isLoan ? selected.amount : selected.loan_amount)
+    if (amt !== currentApproved) {
+      disburseUpdate.approved_amount = amt
+      if (isLoan) {
+        const sim = calculateLoanSimulation(amt, selected.tenor, selected.bank_code, false)
+        disburseUpdate.total_interest = sim.totalInterest
+        disburseUpdate.platform_fee = sim.platformFee
+        disburseUpdate.net_disbursement = sim.netDisbursement
+        disburseUpdate.total_repayment = sim.totalRepayment
+        disburseUpdate.monthly_installment = sim.monthlyInstallment
+        disburseUpdate.remaining_amount = sim.totalRepayment
+      } else {
+        const sim = calculateGadaiSimulation(amt, selected.bank_code)
+        disburseUpdate.interest = sim.interest
+        disburseUpdate.platform_fee = sim.platformFee
+        disburseUpdate.net_disbursement = sim.netDisbursement
+        disburseUpdate.total_repayment = sim.totalRepayment
+        disburseUpdate.extension_fee = sim.extensionFee
+      }
+    }
+
+    const { error } = await svc.updateFull(selected.id, disburseUpdate)
 
     if (!error && selected.user_id) {
       const msg = isLoan
@@ -287,15 +341,13 @@ export default function AdminApprovals() {
             { id: 'gadai', label: 'Gadai', icon: Package, count: counts.gadai },
           ].map(({ id, label, icon: Icon, count }) => (
             <button key={id} onClick={() => setTab(id)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-600 transition-all ${
-                tab === id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-              }`}>
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-600 transition-all ${tab === id ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                }`}>
               <Icon size={13} />
               {label}
               {count > 0 && (
-                <span className={`text-xs font-700 px-1.5 py-0.5 rounded-full leading-none ${
-                  tab === id ? 'bg-violet-500 text-white' : 'bg-slate-300 text-slate-600'
-                }`}>{count}</span>
+                <span className={`text-xs font-700 px-1.5 py-0.5 rounded-full leading-none ${tab === id ? 'bg-violet-500 text-white' : 'bg-slate-300 text-slate-600'
+                  }`}>{count}</span>
               )}
             </button>
           ))}
@@ -335,11 +387,10 @@ export default function AdminApprovals() {
                     <Td className="font-700">{formatIDR(original)}</Td>
                     <Td>
                       {revisedValue ? (
-                        <span className={`text-xs font-700 px-2 py-1 rounded-lg ${
-                          wasRevised
-                            ? (item.status === 'review' ? 'text-amber-700 bg-amber-50' : 'text-emerald-700 bg-emerald-50')
-                            : 'text-slate-500 bg-slate-50'
-                        }`}>
+                        <span className={`text-xs font-700 px-2 py-1 rounded-lg ${wasRevised
+                          ? (item.status === 'review' ? 'text-amber-700 bg-amber-50' : 'text-emerald-700 bg-emerald-50')
+                          : 'text-slate-500 bg-slate-50'
+                          }`}>
                           {wasRevised && '→ '}{formatIDR(revisedValue)}
                         </span>
                       ) : <span className="text-slate-300 text-xs">—</span>}
@@ -415,13 +466,13 @@ export default function AdminApprovals() {
                   const docs = !isLoan
                     ? [{ label: 'Foto Barang', url: selected.item_photo_url }]
                     : [
-                        { label: 'Foto KTP', url: selected.ktp_photo_url },
-                        { label: 'Selfie + KTP', url: selected.selfie_ktp_url },
-                        { label: 'Foto Wajah', url: selected.selfie_url },
-                        { label: 'Kartu Keluarga', url: selected.kk_url },
-                        { label: 'KTM', url: selected.ktm_url },
-                        { label: 'Bukti PDDIKTI', url: selected.pddikti_url },
-                      ]
+                      { label: 'Foto KTP', url: selected.ktp_photo_url },
+                      { label: 'Selfie + KTP', url: selected.selfie_ktp_url },
+                      { label: 'Foto Wajah', url: selected.selfie_url },
+                      { label: 'Kartu Keluarga', url: selected.kk_url },
+                      { label: 'KTM', url: selected.ktm_url },
+                      { label: 'Bukti PDDIKTI', url: selected.pddikti_url },
+                    ]
                   const filtered = docs.filter(d => d && d.url)
                   if (!filtered.length) return null
                   return (
