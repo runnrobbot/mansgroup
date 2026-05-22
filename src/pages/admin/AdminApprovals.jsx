@@ -445,20 +445,48 @@ export default function AdminApprovals() {
                 )}
 
                 <div className="mb-5">
-                  <InfoRow label={isLoan ? 'Jumlah Diajukan' : 'Nilai Gadai Diajukan'} value={formatIDR(isLoan ? selected.amount : selected.loan_amount)} />
-                  {selected.suggested_amount && selected.status === 'review' && (
-                    <InfoRow label="Usulan Revisi Staff" value={<span className="text-amber-700 font-800">{formatIDR(selected.suggested_amount)}</span>} />
-                  )}
-                  {selected.approved_amount && selected.status !== 'review' && (
-                    <InfoRow label="Nilai Disetujui Final" value={<span className="text-emerald-700 font-800">{formatIDR(selected.approved_amount)}</span>} />
-                  )}
-                  {isLoan && <InfoRow label="Tenor" value={`${selected.tenor} bulan`} />}
-                  {isLoan && <InfoRow label="Bunga (5%/bln)" value={formatIDR((selected.amount || 0) * 0.05 * (selected.tenor || 1))} />}
-                  <InfoRow label="Dana Bersih" value={<span className="text-emerald-700 font-800">{formatIDR(selected.net_disbursement || (isLoan ? selected.amount : selected.loan_amount))}</span>} />
-                  <InfoRow label="Rekening Tujuan" value={`${selected.bank_code} · ${selected.account_number} (${selected.account_name || '-'})`} />
-                  {!isLoan && <InfoRow label="Nama Barang" value={selected.item_name || '-'} />}
-                  {!isLoan && <InfoRow label="Alamat Penjemputan" value={selected.pickup_address || '-'} />}
-                  <InfoRow label="Tanggal Pengajuan" value={formatDateTime(selected.created_at)} />
+                  {/* Determine the effective amount to show in this modal */}
+                  {(() => {
+                    const originalAmt = isLoan ? selected.amount : selected.loan_amount
+                    // For review status: best estimate is suggested_amount (staff revision)
+                    // For approved status: use approved_amount (final)
+                    const effectiveAmt = selected.approved_amount ?? selected.suggested_amount ?? originalAmt
+                    const wasRevised = effectiveAmt !== originalAmt
+                    return (
+                      <>
+                        <InfoRow label={isLoan ? 'Jumlah Diajukan' : 'Nilai Gadai Diajukan'} value={formatIDR(originalAmt)} />
+                        {selected.suggested_amount && selected.status === 'review' && (
+                          <InfoRow label="Usulan Revisi Staff" value={<span className="text-amber-700 font-800">{formatIDR(selected.suggested_amount)}</span>} />
+                        )}
+                        {selected.approved_amount && selected.status !== 'review' && (
+                          <InfoRow label="Nilai Disetujui Final" value={<span className="text-emerald-700 font-800">{formatIDR(selected.approved_amount)}</span>} />
+                        )}
+                        {isLoan && <InfoRow label="Tenor" value={`${selected.tenor} bulan`} />}
+                        {isLoan && (
+                          <InfoRow
+                            label="Bunga (5%/bln)"
+                            value={formatIDR(effectiveAmt * 0.05 * (selected.tenor || 1))}
+                          />
+                        )}
+                        <InfoRow
+                          label="Dana Bersih"
+                          value={
+                            <span className="text-emerald-700 font-800">
+                              {formatIDR(
+                                wasRevised
+                                  ? effectiveAmt - (effectiveAmt * (selected.bank_code === 'BCA' || selected.bank_code === 'MANDIRI' ? 0.01 : 0.02))
+                                  : (selected.net_disbursement || effectiveAmt)
+                              )}
+                            </span>
+                          }
+                        />
+                        <InfoRow label="Rekening Tujuan" value={`${selected.bank_code} · ${selected.account_number} (${selected.account_name || '-'})`} />
+                        {!isLoan && <InfoRow label="Nama Barang" value={selected.item_name || '-'} />}
+                        {!isLoan && <InfoRow label="Alamat Penjemputan" value={selected.pickup_address || '-'} />}
+                        <InfoRow label="Tanggal Pengajuan" value={formatDateTime(selected.created_at)} />
+                      </>
+                    )
+                  })()}
                 </div>
 
                 {/* Documents */}

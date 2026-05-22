@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { DashboardLayout } from '../../components/layout/DashboardLayout'
 import { Card } from '../../components/ui/Card'
@@ -6,6 +6,7 @@ import { StatusBadge } from '../../components/ui/Badge'
 import { Table, TableHead, Th, TableBody, Tr, Td, EmptyRow } from '../../components/ui/Table'
 import { useAuth } from '../../contexts/AuthContext'
 import { loanService } from '../../services'
+import { supabase } from '../../lib/supabase'
 import { formatIDR, formatDate, getEffectiveAmount, isRevised } from '../../lib/utils'
 import { Plus, Eye, Clock, Lock, ArrowRight, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -16,13 +17,36 @@ export default function MyLoansPage() {
   const [loans, setLoans] = useState([])
   const [loading, setLoading] = useState(true)
 
+  const loadingRef = useRef(false)
+
+  const load = useCallback(async () => {
+    if (!profile || loadingRef.current) return
+    loadingRef.current = true
+    try {
+      const { data } = await loanService.getByUserId(profile.id)
+      setLoans(data || [])
+    } finally {
+      loadingRef.current = false
+      setLoading(false)
+    }
+  }, [profile])
+
+  useEffect(() => { load() }, [load])
+
+  // Realtime — sync ketika loan status berubah (misal setelah pembayaran lunas)
   useEffect(() => {
     if (!profile) return
-    loanService.getByUserId(profile.id).then(({ data }) => {
-      setLoans(data || [])
-      setLoading(false)
-    })
-  }, [profile])
+    const channel = supabase
+      .channel(`myloans-${profile.id}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'loans',
+        filter: `user_id=eq.${profile.id}`,
+      }, () => { load() })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [profile, load])
 
   // ── Status logic ─────────────────────────────────────────────────────────
   const isProfileComplete = !!(

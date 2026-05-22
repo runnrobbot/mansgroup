@@ -1,15 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { DashboardLayout } from '../../components/layout/DashboardLayout'
 import { Card } from '../../components/ui/Card'
 import { StatusBadge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { loanService, paymentService, midtransService } from '../../services'
+import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
 import { formatIDR, formatDate, formatDateTime, getEffectiveAmount, isRevised, getEffectiveLoanNumbers, generateRefNumber } from '../../lib/utils'
 import {
   ArrowLeft, AlertCircle, CheckCircle, Clock, Banknote, CreditCard,
-  Calendar, TrendingUp, FileText, Building2, User, Phone, Shield,
+  Calendar, TrendingUp, FileText, Building2, User, Shield,
   ChevronRight, AlertTriangle, Info
 } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -59,23 +60,52 @@ export default function LoanDetailPage() {
   const [payAmount, setPayAmount] = useState('')
   const [paying, setPaying] = useState(false)
 
-  const load = async () => {
-    const [loanRes, payRes] = await Promise.all([
-      loanService.getById(id),
-      profile ? paymentService.getByUserId(profile.id) : { data: [] },
-    ])
-    if (loanRes.error) {
-      setFetchError(loanRes.error.message)
-    } else {
-      setLoan(loanRes.data)
-      // Filter payments for this loan
-      const loanPayments = (payRes.data || []).filter(p => p.loan_id === id)
-      setPayments(loanPayments)
-    }
-    setLoading(false)
-  }
+  // Guard against concurrent load() calls
+  const loadingRef = useRef(false)
 
-  useEffect(() => { load() }, [id, profile])
+  const load = useCallback(async () => {
+    if (loadingRef.current) return
+    loadingRef.current = true
+    try {
+      const [loanRes, payRes] = await Promise.all([
+        loanService.getById(id),
+        profile ? paymentService.getByUserId(profile.id) : { data: [] },
+      ])
+      if (loanRes.error) {
+        setFetchError(loanRes.error.message)
+      } else {
+        setLoan(loanRes.data)
+        const loanPayments = (payRes.data || []).filter(p => p.loan_id === id)
+        setPayments(loanPayments)
+      }
+    } finally {
+      loadingRef.current = false
+      setLoading(false)
+    }
+  }, [id, profile])
+
+  useEffect(() => { load() }, [load])
+
+  // Realtime sync — update otomatis ketika payment atau loan berubah
+  useEffect(() => {
+    if (!id) return
+    const channel = supabase
+      .channel(`loan-detail-${id}`)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'payments',
+        filter: `loan_id=eq.${id}`,
+      }, () => { load() })
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'loans',
+        filter: `id=eq.${id}`,
+      }, () => { load() })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [id, load])
 
   // ── Effective numbers (otomatis correct meski data lama belum direkalkulasi) ─
   // Untuk semua angka finansial (cicilan, total bayar, sisa, progress), pakai
@@ -86,6 +116,31 @@ export default function LoanDetailPage() {
     .reduce((s, p) => s + (p.amount || 0), 0)
   const remaining = Math.max(0, eff.totalRepayment - totalPaid)
   const progress = eff.totalRepayment ? Math.min(100, Math.round((totalPaid / eff.totalRepayment) * 100)) : 0
+
+  /**
+   * Sync sisa tagihan dan status pinjaman ke DB setelah pembayaran sukses.
+   * Fallback agar UI update tanpa menunggu webhook Midtrans (terutama di sandbox).
+   */
+  const syncLoanAfterPayment = async (paidAmount) => {
+    try {
+      const paymentsRes = await paymentService.getByLoanId(id)
+      const confirmed = (paymentsRes.data || []).filter(
+        p => ['settlement', 'capture', 'confirmed'].includes(p.status)
+      )
+      const totalPaid = confirmed.reduce((s, p) => s + (p.amount || 0), 0) + paidAmount
+      const totalRepayment = loan?.total_repayment || 0
+      const newRemaining = Math.max(0, totalRepayment - totalPaid)
+      const updates = { remaining_amount: newRemaining }
+      if (newRemaining === 0) {
+        updates.status = 'completed'
+        updates.completed_at = new Date().toISOString()
+      }
+      const { error } = await supabase.from('loans').update(updates).eq('id', id)
+      if (error) console.error('[syncLoanAfterPayment] error:', error)
+    } catch (err) {
+      console.error('[syncLoanAfterPayment] exception:', err)
+    }
+  }
 
   const handlePay = async () => {
     const amt = Number(payAmount)
@@ -146,10 +201,12 @@ export default function LoanDetailPage() {
             midtrans_transaction_id: result.transaction_id,
             midtrans_payment_type: result.payment_type,
           })
+          // Sync remaining & status ke DB tanpa tunggu webhook
+          await syncLoanAfterPayment(amt)
           toast.success('Pembayaran berhasil! Terima kasih.', { duration: 5000 })
           setPayOpen(false)
           setPayAmount('')
-          load()
+          setTimeout(() => load(), 500)
         },
         onPending: async (result) => {
           await paymentService.update(payment.id, {
@@ -161,7 +218,7 @@ export default function LoanDetailPage() {
           toast('Pembayaran sedang diproses. Selesaikan sesuai instruksi yang diberikan.', { icon: '⏳', duration: 6000 })
           setPayOpen(false)
           setPayAmount('')
-          load()
+          setTimeout(() => load(), 500)
         },
         onError: async (result) => {
           await paymentService.update(payment.id, {
@@ -169,12 +226,12 @@ export default function LoanDetailPage() {
             midtrans_status: result?.status_message || 'error',
           })
           toast.error('Pembayaran gagal. Silakan coba lagi.')
-          load()
+          setTimeout(() => load(), 500)
         },
         onClose: () => {
           toast('Pembayaran belum diselesaikan. Kamu bisa melanjutkan dari menu Pembayaran.', { icon: 'ℹ️' })
           setPayOpen(false)
-          load()
+          setTimeout(() => load(), 500)
         },
       })
     } catch (err) {

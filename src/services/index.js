@@ -307,6 +307,15 @@ export const paymentService = {
     return { data, error }
   },
 
+  async getByGadaiId(gadaiId) {
+    const { data, error } = await supabase
+      .from('payments')
+      .select('*')
+      .eq('gadai_id', gadaiId)
+      .order('created_at', { ascending: false })
+    return { data, error }
+  },
+
   async getByUserId(userId) {
     const { data, error } = await supabase
       .from('payments')

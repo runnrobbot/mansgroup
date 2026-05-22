@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { DashboardLayout } from '../../components/layout/DashboardLayout'
 import { Card } from '../../components/ui/Card'
@@ -8,6 +8,7 @@ import { Modal, ModalBody } from '../../components/ui/Modal'
 import { useConfirm } from '../../components/ui/ConfirmModal'
 import { useAuth } from '../../contexts/AuthContext'
 import { gadaiService } from '../../services'
+import { supabase } from '../../lib/supabase'
 import { formatIDR, formatDate, formatDateTime, calculateGadaiSimulation, getEffectiveAmount, isRevised } from '../../lib/utils'
 import { Plus, Eye, RefreshCw, AlertTriangle, Calendar, Package, Lock, Clock, ArrowRight, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -37,14 +38,36 @@ export default function MyGadaiPage() {
   const [detailOpen, setDetailOpen] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
 
-  const load = async () => {
-    if (!profile) return
-    const { data } = await gadaiService.getByUserId(profile.id)
-    setGadais(data || [])
-    setLoading(false)
-  }
+  const loadingRef = useRef(false)
 
-  useEffect(() => { load() }, [profile])
+  const load = useCallback(async () => {
+    if (!profile || loadingRef.current) return
+    loadingRef.current = true
+    try {
+      const { data } = await gadaiService.getByUserId(profile.id)
+      setGadais(data || [])
+    } finally {
+      loadingRef.current = false
+      setLoading(false)
+    }
+  }, [profile])
+
+  useEffect(() => { load() }, [load])
+
+  // Realtime — sync ketika status gadai berubah
+  useEffect(() => {
+    if (!profile) return
+    const channel = supabase
+      .channel(`mygadai-${profile.id}`)
+      .on('postgres_changes', {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'gadai_applications',
+        filter: `user_id=eq.${profile.id}`,
+      }, () => { load() })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [profile, load])
 
   // ── Status logic ──────────────────────────────────────────────────────────
   const isProfileComplete = !!(
