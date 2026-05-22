@@ -4,15 +4,15 @@ import { motion } from 'framer-motion'
 import { DashboardLayout } from '../../components/layout/DashboardLayout'
 import { Card, StatCard } from '../../components/ui/Card'
 import { StatusBadge } from '../../components/ui/Badge'
-import { loanService, gadaiService, kycService, warehouseService, paymentService } from '../../services'
+import { loanService, gadaiService, kycService, warehouseService } from '../../services'
 import { formatIDR, formatRelativeTime } from '../../lib/utils'
-import { ClipboardList, Truck, Warehouse, ChevronRight, CheckCircle, Package, FileSearch, ArrowRight, ShieldCheck } from 'lucide-react'
+import { ClipboardList, Truck, Warehouse, ChevronRight, Package, FileSearch, ArrowRight, ShieldCheck } from 'lucide-react'
 
 const stagger = { visible: { transition: { staggerChildren: 0.06 } } }
 const fadeUp = { hidden: { opacity: 0, y: 10 }, visible: { opacity: 1, y: 0, transition: { duration: 0.3 } } }
 
 export default function StaffDashboard() {
-  const [stats, setStats] = useState({ pendingLoans: 0, pendingGadai: 0, kycPending: 0, pickup: 0, warehouse: 0, paymentPending: 0 })
+  const [stats, setStats] = useState({ pendingLoans: 0, pendingGadai: 0, kycPending: 0, pickup: 0, warehouse: 0 })
   const [recentLoans, setRecentLoans] = useState([])
   const [recentGadai, setRecentGadai] = useState([])
   const [loading, setLoading] = useState(true)
@@ -24,15 +24,13 @@ export default function StaffDashboard() {
       gadaiService.listAll({ status: 'waiting_pickup', limit: 1 }),
       kycService.listPending(),
       warehouseService.listAll({ limit: 1 }),
-      paymentService.listPending(),
-    ]).then(([loans, gadai, pickup, kyc, warehouse, payments]) => {
+    ]).then(([loans, gadai, pickup, kyc, warehouse]) => {
       setStats({
         pendingLoans: loans.count || loans.data?.length || 0,
         pendingGadai: gadai.count || gadai.data?.length || 0,
         pickup: pickup.count || pickup.data?.length || 0,
         kycPending: kyc.data?.length || 0,
         warehouse: warehouse.count || 0,
-        paymentPending: payments.data?.length || 0,
       })
       setRecentLoans((loans.data || []).slice(0, 4))
       setRecentGadai((gadai.data || []).slice(0, 4))
@@ -70,7 +68,6 @@ export default function StaffDashboard() {
           <StatCard label="KYC Pending" value={loading ? '...' : String(stats.kycPending || 0)} icon={FileSearch} />
           <StatCard label="Jadwal Pickup" value={loading ? '...' : String(stats.pickup || 0)} icon={Truck} />
           <StatCard label="Warehouse Items" value={loading ? '...' : String(stats.warehouse || 0)} icon={Warehouse} />
-          <StatCard label="Pembayaran" value={loading ? '...' : String(stats.paymentPending || 0)} icon={CheckCircle} />
         </motion.div>
 
         {/* Quick Links */}

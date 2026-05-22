@@ -14,6 +14,10 @@ import { format, subMonths } from 'date-fns'
 const stagger = { visible: { transition: { staggerChildren: 0.07 } } }
 const fadeUp = { hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0, transition: { duration: 0.3 } } }
 
+// Status pembayaran yang dianggap "sukses": Midtrans pakai 'settlement'/'capture',
+// manual transfer pakai 'confirmed'. Semuanya harus dihitung sebagai revenue.
+const CONFIRMED_PAYMENT_STATUSES = ['settlement', 'capture', 'confirmed']
+
 function buildRevenue(loans, gadais, payments) {
   const months = Array.from({ length: 6 }, (_, i) => {
     const d = subMonths(new Date(), 5 - i)
@@ -35,7 +39,7 @@ function buildRevenue(loans, gadais, payments) {
     if (m) m.gadaiFee += (g.platform_fee || 0)
   })
   payments.forEach(p => {
-    if (p.status === 'confirmed') {
+    if (CONFIRMED_PAYMENT_STATUSES.includes(p.status)) {
       const m = months.find(m => m.key === p.created_at?.slice(0, 7))
       if (m) m.payments += (p.amount || 0)
     }
@@ -52,7 +56,7 @@ export default function FounderRevenue() {
     analyticsService.getSummary().then(d => { setData(d); setLoading(false) })
   }, [])
 
-  const confirmedPayments = data.payments.filter(p => p.status === 'confirmed')
+  const confirmedPayments = data.payments.filter(p => CONFIRMED_PAYMENT_STATUSES.includes(p.status))
   const totalRevenue = data.loans.reduce((s, l) => s + (l.platform_fee || 0), 0)
     + data.gadai.reduce((s, g) => s + (g.platform_fee || 0), 0)
   const totalCollected = confirmedPayments.reduce((s, p) => s + (p.amount || 0), 0)

@@ -54,7 +54,11 @@ export default function FounderDashboard() {
   const totalLoans = data.loans.length
   const nplRate = totalLoans ? ((overdueLoans / totalLoans) * 100).toFixed(1) : 0
   const totalUsers = data.users.filter(u => u.role === 'user').length
-  const totalRevenue = data.payments.filter(p => p.status === 'confirmed').reduce((s, p) => s + (p.amount || 0), 0)
+  // Status pembayaran yang dianggap "sukses": Midtrans pakai 'settlement'/'capture',
+  // manual transfer pakai 'confirmed'.
+  const totalRevenue = data.payments
+    .filter(p => ['settlement', 'capture', 'confirmed'].includes(p.status))
+    .reduce((s, p) => s + (p.amount || 0), 0)
   const activeGadai = data.gadai.filter(g => g.status === 'active').length
 
   const monthlyData = buildMonthlyData(data.loans, data.gadai)

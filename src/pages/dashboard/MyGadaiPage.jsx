@@ -4,13 +4,21 @@ import { DashboardLayout } from '../../components/layout/DashboardLayout'
 import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 import { Table, TableHead, Th, TableBody, Tr, Td, EmptyRow } from '../../components/ui/Table'
-import { Modal, ModalBody } from '../../components/ui/Modal'
+import { Modal, ModalBody, ModalFooter } from '../../components/ui/Modal'
 import { useConfirm } from '../../components/ui/ConfirmModal'
 import { useAuth } from '../../contexts/AuthContext'
-import { gadaiService } from '../../services'
+import { gadaiService, paymentService, midtransService } from '../../services'
 import { supabase } from '../../lib/supabase'
-import { formatIDR, formatDate, formatDateTime, calculateGadaiSimulation, getEffectiveAmount, isRevised } from '../../lib/utils'
-import { Plus, Eye, RefreshCw, AlertTriangle, Calendar, Package, Lock, Clock, ArrowRight, AlertCircle } from 'lucide-react'
+import { recomputeGadaiState, recomputeGadaiExtension } from '../../lib/paymentSync'
+import { useDebouncedReload } from '../../lib/useDebouncedReload'
+import {
+  formatIDR, formatDate, formatDateTime,
+  getEffectiveGadaiNumbers, getEffectiveAmount, isRevised, generateRefNumber,
+} from '../../lib/utils'
+import {
+  Plus, Eye, RefreshCw, AlertTriangle, Calendar, Package,
+  Lock, Clock, ArrowRight, AlertCircle, CreditCard, Loader,
+} from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const STATUS_INFO = {
@@ -28,15 +36,31 @@ const STATUS_INFO = {
   rejected: { label: 'Ditolak', color: 'bg-red-50 text-red-700' },
 }
 
+const PAYABLE_STATUSES = ['active', 'due', 'extended', 'overdue']
+
 export default function MyGadaiPage() {
   const { profile } = useAuth()
   const navigate = useNavigate()
   const confirm = useConfirm()
+
   const [gadais, setGadais] = useState([])
   const [loading, setLoading] = useState(true)
+
+  // Detail modal
   const [selected, setSelected] = useState(null)
   const [detailOpen, setDetailOpen] = useState(false)
-  const [actionLoading, setActionLoading] = useState(false)
+
+  // Payment modal
+  const [payGadai, setPayGadai] = useState(null)       // gadai record yang mau dibayar
+  const [payType, setPayType] = useState(null)          // 'extension' | 'repayment'
+  const [paying, setPaying] = useState(false)
+  const [payOpen, setPayOpen] = useState(false)
+
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => { mountedRef.current = false }
+  }, [])
 
   const loadingRef = useRef(false)
 
@@ -45,14 +69,16 @@ export default function MyGadaiPage() {
     loadingRef.current = true
     try {
       const { data } = await gadaiService.getByUserId(profile.id)
-      setGadais(data || [])
+      if (mountedRef.current) setGadais(data || [])
     } finally {
       loadingRef.current = false
-      setLoading(false)
+      if (mountedRef.current) setLoading(false)
     }
   }, [profile])
 
   useEffect(() => { load() }, [load])
+
+  const scheduleReload = useDebouncedReload(load, 250)
 
   // Realtime — sync ketika status gadai berubah
   useEffect(() => {
@@ -64,10 +90,16 @@ export default function MyGadaiPage() {
         schema: 'public',
         table: 'gadai_applications',
         filter: `user_id=eq.${profile.id}`,
-      }, () => { load() })
+      }, () => { scheduleReload() })
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'payments',
+        filter: `user_id=eq.${profile.id}`,
+      }, () => { scheduleReload() })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
-  }, [profile, load])
+  }, [profile, scheduleReload])
 
   // ── Status logic ──────────────────────────────────────────────────────────
   const isProfileComplete = !!(
@@ -76,36 +108,153 @@ export default function MyGadaiPage() {
   )
   const isKycVerified = profile?.kyc_status === 'verified'
 
-  // All non-terminal gadai (active, in-progress, pending, approved) count toward the 3-gadai cap
   const GADAI_MAX = 3
   const activeGadaiStatuses = ['active', 'due', 'extended', 'overdue', 'waiting_pickup', 'picked_up', 'received']
   const pendingGadaiStatuses = ['pending', 'review', 'revision', 'approved']
 
   const activeGadais = gadais.filter(g => activeGadaiStatuses.includes(g.status))
   const pendingGadais = gadais.filter(g => pendingGadaiStatuses.includes(g.status))
-  const inFlightCount = activeGadais.length + pendingGadais.length // total yang belum selesai
+  const inFlightCount = activeGadais.length + pendingGadais.length
 
-  // Kept for convenience (used in extension logic)
   const activeGadai = activeGadais[0] || null
   const pendingGadai = pendingGadais[0] || null
 
-  const handleExtend = async (gadai) => {
-    // Biaya perpanjangan dihitung dari nilai yang disetujui (approved_amount),
-    // bukan dari pengajuan asli — penting kalau ada revisi limit.
-    const effectivePrincipal = getEffectiveAmount(gadai, false)
-    const sim = calculateGadaiSimulation(effectivePrincipal)
+  // ── Midtrans payment ──────────────────────────────────────────────────────
+
+  const openPay = (gadai, type) => {
+    setPayGadai(gadai)
+    setPayType(type)
+    setPayOpen(true)
+  }
+
+  const handlePay = async () => {
+    if (!payGadai || !payType) return
+    const eff = getEffectiveGadaiNumbers(payGadai)
+    const nominal = payType === 'extension' ? eff.extensionFee : eff.totalRepayment
+
+    if (!nominal || nominal <= 0) {
+      toast.error('Nominal pembayaran tidak valid')
+      return
+    }
+
+    const label = payType === 'extension'
+      ? `Perpanjangan gadai ${payGadai.ref_number} — +30 hari`
+      : `Pelunasan gadai ${payGadai.ref_number}`
+
     const ok = await confirm({
-      title: 'Perpanjang Gadai?',
-      message: `Masa gadai akan diperpanjang 1 bulan dengan biaya perpanjangan ${formatIDR(sim.extensionFee)} (10% dari nilai pinjaman ${formatIDR(effectivePrincipal)}).`,
-      variant: 'warning',
-      confirmLabel: 'Ya, Perpanjang',
+      title: payType === 'extension' ? 'Perpanjang Gadai?' : 'Lunasi Gadai?',
+      message: `${label}. Total pembayaran: ${formatIDR(nominal)}. Kamu akan diarahkan ke halaman pembayaran Midtrans yang aman.`,
+      variant: 'info',
+      confirmLabel: 'Lanjutkan Pembayaran',
     })
     if (!ok) return
-    setActionLoading(true)
-    const { error } = await gadaiService.updateStatus(gadai.id, 'extended', 'Perpanjangan oleh user')
-    if (!error) { toast.success('Gadai berhasil diperpanjang'); load() }
-    else toast.error('Gagal memperpanjang gadai')
-    setActionLoading(false)
+
+    setPaying(true)
+    try {
+      // 1. Buat record payment
+      const orderId = `GAD-${generateRefNumber()}`
+      const { data: payment, error: createErr } = await paymentService.create({
+        user_id: profile.id,
+        gadai_id: payGadai.id,
+        amount: nominal,
+        payment_type: payType,   // 'extension' | 'repayment'
+        payment_method: 'midtrans',
+        midtrans_order_id: orderId,
+        status: 'pending',
+      })
+      if (createErr || !payment) throw new Error(createErr?.message || 'Gagal membuat order pembayaran')
+
+      // 2. Request Snap token
+      const { token, error: tokenErr } = await midtransService.createSnapToken({
+        orderId,
+        grossAmount: nominal,
+        customerName: profile.full_name,
+        customerEmail: profile.email,
+        customerPhone: profile.phone,
+        paymentId: payment.id,
+        itemDetails: [{
+          id: payGadai.id,
+          price: nominal,
+          quantity: 1,
+          name: (payType === 'extension'
+            ? `Perpanjangan ${payGadai.ref_number}`
+            : `Pelunasan ${payGadai.ref_number}`
+          ).slice(0, 50),
+        }],
+      })
+
+      if (tokenErr || !token) {
+        await paymentService.update(payment.id, {
+          status: 'failed',
+          notes: `Gagal token Midtrans: ${tokenErr?.message || 'unknown'}`,
+        })
+        throw new Error(tokenErr?.message || 'Layanan pembayaran tidak tersedia. Coba beberapa saat lagi.')
+      }
+
+      // 3. Buka Snap popup
+      await midtransService.loadSnapScript()
+
+      window.snap.pay(token, {
+        onSuccess: async (result) => {
+          // Update payment record → confirmed
+          await paymentService.update(payment.id, {
+            status: 'settlement',
+            midtrans_status: result.transaction_status,
+            midtrans_transaction_id: result.transaction_id,
+            midtrans_payment_type: result.payment_type,
+          })
+
+          // Update gadai status sesuai tipe pembayaran
+          if (payType === 'extension') {
+            await recomputeGadaiExtension(payGadai.id)
+          } else {
+            await recomputeGadaiState(payGadai.id)
+          }
+
+          if (!mountedRef.current) return
+          toast.success(
+            payType === 'extension'
+              ? 'Gadai berhasil diperpanjang! Jatuh tempo diperbarui +30 hari.'
+              : 'Pelunasan berhasil! Gadai sudah berstatus Lunas.',
+            { duration: 5000 }
+          )
+          setPayOpen(false)
+          load()
+        },
+        onPending: async (result) => {
+          await paymentService.update(payment.id, {
+            status: 'verification',
+            midtrans_status: result.transaction_status,
+            midtrans_transaction_id: result.transaction_id,
+            midtrans_payment_type: result.payment_type,
+          })
+          if (!mountedRef.current) return
+          toast('Pembayaran diproses. Selesaikan sesuai instruksi yang diberikan.', { icon: '⏳', duration: 6000 })
+          setPayOpen(false)
+          scheduleReload()
+        },
+        onError: async (result) => {
+          await paymentService.update(payment.id, {
+            status: 'failed',
+            midtrans_status: result?.status_message || 'error',
+          })
+          if (!mountedRef.current) return
+          toast.error('Pembayaran gagal. Silakan coba lagi.')
+          scheduleReload()
+        },
+        onClose: () => {
+          if (!mountedRef.current) return
+          toast('Pembayaran belum diselesaikan. Kamu bisa melanjutkan dari halaman ini.', { icon: 'ℹ️' })
+          setPayOpen(false)
+          scheduleReload()
+        },
+      })
+    } catch (err) {
+      console.error('Gadai payment error:', err)
+      if (mountedRef.current) toast.error(err.message || 'Terjadi kesalahan saat memproses pembayaran')
+    } finally {
+      if (mountedRef.current) setPaying(false)
+    }
   }
 
   // ── Tombol "Ajukan Gadai" ─────────────────────────────────────────────────
@@ -123,7 +272,6 @@ export default function MyGadaiPage() {
         </button>
       )
     }
-    // Sudah mencapai batas maksimal 3 gadai aktif/pending
     if (inFlightCount >= GADAI_MAX) {
       return (
         <button
@@ -188,7 +336,6 @@ export default function MyGadaiPage() {
         </div>
       )
     }
-    // Cap reached
     if (inFlightCount >= GADAI_MAX) {
       return (
         <div className="flex items-start gap-3 p-4 bg-slate-50 border border-slate-200 rounded-2xl">
@@ -208,8 +355,7 @@ export default function MyGadaiPage() {
       const wasRevised = isRevised(pendingGadai, false)
       const isApproved = pendingGadai.status === 'approved'
       return (
-        <div className={`flex items-start gap-3 p-4 rounded-2xl ${isApproved ? 'bg-emerald-50 border border-emerald-100' : 'bg-amber-50 border border-amber-100'
-          }`}>
+        <div className={`flex items-start gap-3 p-4 rounded-2xl ${isApproved ? 'bg-emerald-50 border border-emerald-100' : 'bg-amber-50 border border-amber-100'}`}>
           <Clock size={16} className={`flex-shrink-0 mt-0.5 ${isApproved ? 'text-emerald-500' : 'text-amber-500'}`} />
           <div className="flex-1">
             <p className={`text-sm font-700 ${isApproved ? 'text-emerald-800' : 'text-amber-800'}`}>
@@ -230,15 +376,13 @@ export default function MyGadaiPage() {
           </div>
           <button
             onClick={() => { setSelected(pendingGadai); setDetailOpen(true) }}
-            className={`ml-auto text-xs font-600 flex items-center gap-1 whitespace-nowrap ${isApproved ? 'text-emerald-700 hover:text-emerald-800' : 'text-amber-600 hover:text-amber-700'
-              }`}
+            className={`ml-auto text-xs font-600 flex items-center gap-1 whitespace-nowrap ${isApproved ? 'text-emerald-700 hover:text-emerald-800' : 'text-amber-600 hover:text-amber-700'}`}
           >
             Lihat <ArrowRight size={12} />
           </button>
         </div>
       )
     }
-    // Overdue warning (independent)
     if (gadais.some(g => g.status === 'overdue')) {
       return (
         <div className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-2xl">
@@ -258,6 +402,12 @@ export default function MyGadaiPage() {
     pending: gadais.filter(g => ['pending', 'review', 'waiting_pickup', 'picked_up', 'received'].includes(g.status)).length,
     total: gadais.length,
   }
+
+  // ── Compute payment info for modal ────────────────────────────────────────
+  const payEff = payGadai ? getEffectiveGadaiNumbers(payGadai) : null
+  const payAmount = payEff
+    ? (payType === 'extension' ? payEff.extensionFee : payEff.totalRepayment)
+    : 0
 
   return (
     <DashboardLayout role="user">
@@ -311,6 +461,7 @@ export default function MyGadaiPage() {
               ) : gadais.map(g => {
                 const eff = getEffectiveAmount(g, false)
                 const revised = isRevised(g, false)
+                const canPay = PAYABLE_STATUSES.includes(g.status)
                 return (
                   <Tr key={g.id}>
                     <Td><span className="font-600 text-xs font-mono">{g.ref_number || '-'}</span></Td>
@@ -345,19 +496,34 @@ export default function MyGadaiPage() {
                     </Td>
                     <Td align="center">
                       <div className="flex items-center justify-center gap-1">
+                        {/* Detail */}
                         <button
                           onClick={() => { setSelected(g); setDetailOpen(true) }}
                           className="w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 transition-colors"
+                          title="Detail"
                         >
                           <Eye size={13} />
                         </button>
-                        {['active', 'due', 'overdue'].includes(g.status) && (
+                        {/* Perpanjang */}
+                        {canPay && (
                           <button
-                            onClick={() => handleExtend(g)}
-                            disabled={actionLoading}
+                            onClick={() => openPay(g, 'extension')}
+                            disabled={paying}
                             className="w-7 h-7 rounded-lg hover:bg-amber-50 flex items-center justify-center text-amber-600 transition-colors disabled:opacity-50"
+                            title="Perpanjang Gadai"
                           >
                             <RefreshCw size={13} />
+                          </button>
+                        )}
+                        {/* Lunasi */}
+                        {canPay && (
+                          <button
+                            onClick={() => openPay(g, 'repayment')}
+                            disabled={paying}
+                            className="w-7 h-7 rounded-lg hover:bg-emerald-50 flex items-center justify-center text-emerald-600 transition-colors disabled:opacity-50"
+                            title="Bayar Lunas"
+                          >
+                            <CreditCard size={13} />
                           </button>
                         )}
                       </div>
@@ -371,72 +537,163 @@ export default function MyGadaiPage() {
 
         {/* Detail Modal */}
         <Modal isOpen={detailOpen} onClose={() => setDetailOpen(false)} title="Detail Gadai" size="md">
-          {selected && (
-            <ModalBody>
-              <div className="space-y-4">
-                <div className="bg-slate-50 rounded-xl p-4">
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center">
-                      <Package size={17} className="text-emerald-600" />
-                    </div>
-                    <div>
-                      <p className="font-700 text-slate-900">{selected.item_name || '-'}</p>
-                      <p className="text-xs text-slate-500">{selected.item_category || '-'}</p>
-                    </div>
-                    <div className="ml-auto">
-                      <span className={`text-xs font-600 px-2 py-1 rounded-lg ${STATUS_INFO[selected.status]?.color}`}>
-                        {STATUS_INFO[selected.status]?.label || selected.status}
-                      </span>
+          {selected && (() => {
+            const eff = getEffectiveGadaiNumbers(selected)
+            const canPay = PAYABLE_STATUSES.includes(selected.status)
+            return (
+              <ModalBody>
+                <div className="space-y-4">
+                  <div className="bg-slate-50 rounded-xl p-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center">
+                        <Package size={17} className="text-emerald-600" />
+                      </div>
+                      <div>
+                        <p className="font-700 text-slate-900">{selected.item_name || '-'}</p>
+                        <p className="text-xs text-slate-500">{selected.item_category || '-'}</p>
+                      </div>
+                      <div className="ml-auto">
+                        <span className={`text-xs font-600 px-2 py-1 rounded-lg ${STATUS_INFO[selected.status]?.color}`}>
+                          {STATUS_INFO[selected.status]?.label || selected.status}
+                        </span>
+                      </div>
                     </div>
                   </div>
+
+                  {isRevised(selected, false) && (
+                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-200">
+                      <div className="flex items-center gap-2 mb-1">
+                        <AlertTriangle size={13} className="text-amber-600" />
+                        <p className="text-xs font-700 text-amber-700">Limit Direvisi oleh Tim Kami</p>
+                      </div>
+                      <p className="text-xs text-amber-700">
+                        Pengajuan awal: <span className="line-through">{formatIDR(selected.loan_amount)}</span> · Disetujui: <span className="font-800">{formatIDR(getEffectiveAmount(selected, false))}</span>
+                      </p>
+                      {selected.revision_note && (
+                        <p className="text-xs text-amber-600 mt-1">Catatan: {selected.revision_note}</p>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-4">
+                    {[
+                      { label: 'Ref. Nomor', value: selected.ref_number || '-' },
+                      { label: 'Nilai Pinjaman', value: formatIDR(eff.principal) },
+                      { label: 'Bunga (5%)', value: formatIDR(eff.interest) },
+                      { label: 'Total Pelunasan', value: <span className="text-red-600 font-800">{formatIDR(eff.totalRepayment)}</span> },
+                      { label: 'Biaya Perpanjangan', value: <span className="text-amber-700 font-700">{formatIDR(eff.extensionFee)}</span> },
+                      { label: 'Jatuh Tempo', value: selected.due_date ? formatDate(selected.due_date) : '-' },
+                      { label: 'Jadwal Pickup', value: selected.pickup_schedule ? formatDateTime(selected.pickup_schedule) : '-' },
+                      { label: 'Tanggal Pengajuan', value: formatDateTime(selected.created_at) },
+                    ].map(({ label, value }) => (
+                      <div key={label}>
+                        <p className="text-xs text-slate-400 mb-0.5">{label}</p>
+                        <p className="text-sm font-600 text-slate-900">{value}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  {selected.staff_notes && (
+                    <div className="p-3 bg-blue-50 rounded-xl border border-blue-100">
+                      <p className="text-xs font-700 text-blue-700">Catatan Staff</p>
+                      <p className="text-xs text-blue-600 mt-0.5">{selected.staff_notes}</p>
+                    </div>
+                  )}
+
+                  {canPay && (
+                    <div className="flex gap-2 pt-1">
+                      <Button
+                        variant="secondary"
+                        icon={RefreshCw}
+                        className="flex-1"
+                        onClick={() => { setDetailOpen(false); openPay(selected, 'extension') }}
+                      >
+                        Perpanjang (+{formatIDR(eff.extensionFee)})
+                      </Button>
+                      <Button
+                        icon={CreditCard}
+                        className="flex-1"
+                        onClick={() => { setDetailOpen(false); openPay(selected, 'repayment') }}
+                      >
+                        Lunasi ({formatIDR(eff.totalRepayment)})
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              </ModalBody>
+            )
+          })()}
+        </Modal>
+
+        {/* Payment Confirmation Modal */}
+        <Modal
+          isOpen={payOpen}
+          onClose={() => !paying && setPayOpen(false)}
+          title={payType === 'extension' ? 'Perpanjang Gadai' : 'Lunasi Gadai'}
+          size="sm"
+        >
+          {payGadai && payEff && (
+            <>
+              <ModalBody>
+                <div className="bg-emerald-50 rounded-xl p-4 mb-4">
+                  <p className="text-xs text-emerald-600 font-600 mb-1">Gadai</p>
+                  <p className="font-800 text-emerald-900">{payGadai.ref_number}</p>
+                  <p className="text-xs text-emerald-700 mt-0.5">{payGadai.item_name || '-'}</p>
                 </div>
 
-                {/* Banner revisi — muncul kalau staff sudah usulkan revisi atau admin sudah set approved_amount berbeda dari original */}
-                {isRevised(selected, false) && (
-                  <div className="p-3 bg-amber-50 rounded-xl border border-amber-200">
-                    <div className="flex items-center gap-2 mb-1">
-                      <AlertTriangle size={13} className="text-amber-600" />
-                      <p className="text-xs font-700 text-amber-700">Limit Direvisi oleh Tim Kami</p>
-                    </div>
-                    <p className="text-xs text-amber-700">
-                      Pengajuan awal: <span className="line-through">{formatIDR(selected.loan_amount)}</span> · Disetujui: <span className="font-800">{formatIDR(getEffectiveAmount(selected, false))}</span>
-                    </p>
-                    {selected.revision_note && (
-                      <p className="text-xs text-amber-600 mt-1">Catatan: {selected.revision_note}</p>
-                    )}
-                  </div>
-                )}
-
-                <div className="grid grid-cols-2 gap-4">
-                  {[
-                    { label: 'Ref. Nomor', value: selected.ref_number || '-' },
-                    { label: 'Nilai Diajukan', value: formatIDR(selected.loan_amount) },
-                    { label: 'Nilai Disetujui', value: <span className={isRevised(selected, false) ? 'text-amber-700 font-800' : ''}>{formatIDR(getEffectiveAmount(selected, false))}</span> },
-                    { label: 'Jatuh Tempo', value: selected.due_date ? formatDate(selected.due_date) : '-' },
-                    { label: 'Jadwal Pickup', value: selected.pickup_schedule ? formatDateTime(selected.pickup_schedule) : '-' },
-                    { label: 'Tanggal Pengajuan', value: formatDateTime(selected.created_at) },
-                    { label: 'Biaya Perpanjangan', value: formatIDR(getEffectiveAmount(selected, false) * 0.1) },
-                  ].map(({ label, value }) => (
-                    <div key={label}>
-                      <p className="text-xs text-slate-400 mb-0.5">{label}</p>
-                      <p className="text-sm font-600 text-slate-900">{value}</p>
-                    </div>
-                  ))}
+                <div className="space-y-3 mb-4">
+                  {payType === 'extension' ? (
+                    <>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-500">Nilai pinjaman</span>
+                        <span className="font-600">{formatIDR(payEff.principal)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-500">Biaya perpanjangan (10%)</span>
+                        <span className="font-700 text-amber-700">{formatIDR(payEff.extensionFee)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm pt-2 border-t border-slate-100">
+                        <span className="text-slate-700 font-600">Jatuh tempo baru</span>
+                        <span className="font-700 text-emerald-700">+30 hari</span>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-500">Pokok pinjaman</span>
+                        <span className="font-600">{formatIDR(payEff.principal)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-slate-500">Bunga (5%)</span>
+                        <span className="font-600">{formatIDR(payEff.interest)}</span>
+                      </div>
+                      <div className="flex justify-between text-sm pt-2 border-t border-slate-100">
+                        <span className="text-slate-700 font-600">Total pelunasan</span>
+                        <span className="font-800 text-red-600">{formatIDR(payEff.totalRepayment)}</span>
+                      </div>
+                    </>
+                  )}
                 </div>
-                {selected.staff_notes && (
-                  <div className="p-3 bg-blue-50 rounded-xl border border-blue-100">
-                    <p className="text-xs font-700 text-blue-700">Catatan Staff</p>
-                    <p className="text-xs text-blue-600 mt-0.5">{selected.staff_notes}</p>
-                  </div>
-                )}
-                {['active', 'due', 'overdue'].includes(selected.status) && (
-                  <Button icon={RefreshCw} className="w-full" loading={actionLoading}
-                    onClick={() => { setDetailOpen(false); handleExtend(selected) }}>
-                    Perpanjang Gadai (+{formatIDR(getEffectiveAmount(selected, false) * 0.1)})
-                  </Button>
-                )}
-              </div>
-            </ModalBody>
+
+                <div className="flex items-start gap-2 p-3 bg-blue-50 rounded-xl">
+                  <CreditCard size={14} className="text-blue-600 flex-shrink-0 mt-0.5" />
+                  <p className="text-xs text-blue-700">
+                    Pembayaran via Midtrans Snap. Mendukung Transfer Bank, QRIS, Virtual Account, e-wallet, dan kartu kredit.
+                    Status akan diperbarui otomatis setelah pembayaran selesai.
+                  </p>
+                </div>
+              </ModalBody>
+              <ModalFooter>
+                <Button variant="ghost" onClick={() => setPayOpen(false)} disabled={paying}>Batal</Button>
+                <Button
+                  icon={paying ? Loader : CreditCard}
+                  loading={paying}
+                  onClick={handlePay}
+                >
+                  {paying ? 'Memproses...' : `Bayar ${formatIDR(payAmount)}`}
+                </Button>
+              </ModalFooter>
+            </>
           )}
         </Modal>
 

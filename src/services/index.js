@@ -49,24 +49,6 @@ export const profileService = {
 // ─── KYC ────────────────────────────────────────────────────────────────────
 
 export const kycService = {
-  async getByUserId(userId) {
-    const { data, error } = await supabase
-      .from('kyc_documents')
-      .select('*')
-      .eq('user_id', userId)
-      .single()
-    return { data, error }
-  },
-
-  async submit(userId, kycData) {
-    const { data, error } = await supabase
-      .from('kyc_documents')
-      .upsert({ user_id: userId, ...kycData, status: 'pending', submitted_at: new Date().toISOString() })
-      .select()
-      .single()
-    return { data, error }
-  },
-
   async updateStatus(id, status, notes = '') {
     const { data, error } = await supabase
       .from('kyc_documents')
@@ -182,15 +164,6 @@ export const gadaiService = {
     return { data, error }
   },
 
-  async getById(id) {
-    const { data, error } = await supabase
-      .from('gadai_applications')
-      .select('*, collateral_items(*), profiles(*), documents(*)')
-      .eq('id', id)
-      .single()
-    return { data, error }
-  },
-
   async updateStatus(id, status, notes = '', staffId = null) {
     const updates = { status, updated_at: new Date().toISOString() }
     if (notes) updates.staff_notes = notes
@@ -228,15 +201,6 @@ export const gadaiService = {
     if (status) query = query.eq('status', status)
 
     return query
-  },
-
-  async schedulePickup(gadaiId, pickupData) {
-    const { data, error } = await supabase
-      .from('pickup_schedules')
-      .insert({ gadai_id: gadaiId, ...pickupData })
-      .select()
-      .single()
-    return { data, error }
   },
 }
 
@@ -307,56 +271,12 @@ export const paymentService = {
     return { data, error }
   },
 
-  async getByGadaiId(gadaiId) {
-    const { data, error } = await supabase
-      .from('payments')
-      .select('*')
-      .eq('gadai_id', gadaiId)
-      .order('created_at', { ascending: false })
-    return { data, error }
-  },
-
   async getByUserId(userId) {
     const { data, error } = await supabase
       .from('payments')
       .select('*, loans(ref_number), gadai_applications(ref_number), profiles(full_name, email)')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
-    return { data, error }
-  },
-
-  async verifyPayment(id, status, staffId, notes = '') {
-    const { data, error } = await supabase
-      .from('payments')
-      .update({
-        status,
-        verified_by: staffId,
-        verification_notes: notes,
-        verified_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', id)
-      .select()
-      .single()
-    return { data, error }
-  },
-
-  async listAll({ status = '', limit = 50 } = {}) {
-    let query = supabase
-      .from('payments')
-      .select('*, profiles(full_name, email), loans(ref_number), gadai_applications(ref_number)', { count: 'exact' })
-      .order('created_at', { ascending: false })
-      .limit(limit)
-    if (status) query = query.eq('status', status)
-    return query
-  },
-
-  async listPending() {
-    const { data, error } = await supabase
-      .from('payments')
-      .select('*, profiles(full_name, email), loans(ref_number), gadai_applications(ref_number)')
-      .eq('status', 'verification')
-      .order('created_at', { ascending: true })
     return { data, error }
   },
 }
@@ -385,31 +305,6 @@ export const documentService = {
 
     return { url: signedData.signedUrl, error: null }
   },
-
-  async getSignedUrl(bucket, path, expiresIn = 3600) {
-    const { data, error } = await supabase.storage
-      .from(bucket)
-      .createSignedUrl(path, expiresIn)
-    return { url: data?.signedUrl || null, error }
-  },
-
-  async saveRecord(docData) {
-    const { data, error } = await supabase
-      .from('documents')
-      .insert({ ...docData, uploaded_at: new Date().toISOString() })
-      .select()
-      .single()
-    return { data, error }
-  },
-
-  async getByEntity(entityType, entityId) {
-    const { data, error } = await supabase
-      .from('documents')
-      .select('*')
-      .eq('entity_type', entityType)
-      .eq('entity_id', entityId)
-    return { data, error }
-  },
 }
 
 // ─── Blacklist ────────────────────────────────────────────────────────────────
@@ -422,16 +317,6 @@ export const blacklistService = {
       .select()
       .single()
     return { data, error }
-  },
-
-  async check(userId) {
-    const { data } = await supabase
-      .from('blacklists')
-      .select('*')
-      .eq('user_id', userId)
-      .eq('is_active', true)
-      .single()
-    return !!data
   },
 
   async listAll() {
@@ -464,10 +349,6 @@ export const notificationService = {
       .select()
       .single()
     return { data, error }
-  },
-
-  async markRead(id) {
-    await supabase.from('notifications').update({ is_read: true }).eq('id', id)
   },
 }
 

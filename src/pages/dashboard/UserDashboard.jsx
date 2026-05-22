@@ -9,7 +9,7 @@ import { useAuth } from '../../contexts/AuthContext'
 import { DashboardLayout } from '../../components/layout/DashboardLayout'
 import { Card, StatCard } from '../../components/ui/Card'
 import { StatusBadge } from '../../components/ui/Badge'
-import { loanService, gadaiService, paymentService } from '../../services'
+import { loanService, gadaiService } from '../../services'
 import { formatIDR, formatDate, formatRelativeTime, getEffectiveLoanNumbers } from '../../lib/utils'
 import { useNotifications } from '../../contexts/NotificationContext'
 import toast from 'react-hot-toast'
@@ -66,20 +66,17 @@ export default function UserDashboard() {
   }
   const [loans, setLoans] = useState([])
   const [gadais, setGadais] = useState([])
-  const [payments, setPayments] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     async function load() {
       if (!profile) return
-      const [l, g, p] = await Promise.all([
+      const [l, g] = await Promise.all([
         loanService.getByUserId(profile.id),
         gadaiService.getByUserId(profile.id),
-        paymentService.getByUserId(profile.id),
       ])
       setLoans(l.data || [])
       setGadais(g.data || [])
-      setPayments(p.data || [])
       setLoading(false)
     }
     load()
@@ -88,7 +85,6 @@ export default function UserDashboard() {
   const activeLoans = loans.filter(l => ['disbursed', 'overdue'].includes(l.status))
   const activeGadais = gadais.filter(g => ['active', 'due', 'extended'].includes(g.status))
   const pendingLoans = loans.filter(l => ['pending', 'review', 'approved'].includes(l.status))
-  const totalOutstanding = activeLoans.reduce((sum, l) => sum + (l.remaining_amount || 0), 0)
   const hasOverdue = activeLoans.some(l => l.status === 'overdue') || activeGadais.some(g => g.status === 'due')
   const hasReward = profile?.reward_eligible
 

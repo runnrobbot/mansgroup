@@ -69,10 +69,11 @@ export default function PaymentsPage() {
     ])
     if (!mountedRef.current) return
     setPayments(paymentsRes.data || [])
-    // Termasuk 'completed' supaya user masih bisa lihat history pelunasan saat sudah lunas.
-    // Tapi tombol "Bayar" otomatis ke-disable kalau remaining = 0.
+    // Hanya tampilkan loan yang masih aktif. 'completed' di-exclude agar
+    // setelah lunas, card pinjaman langsung hilang dari section "Pinjaman Aktif".
+    // History pembayarannya tetap muncul di tabel "Riwayat Pembayaran" di bawah.
     setActiveLoans(
-      (loansRes.data || []).filter(l => ['disbursed', 'overdue', 'completed'].includes(l.status))
+      (loansRes.data || []).filter(l => ['disbursed', 'overdue'].includes(l.status))
     )
     setLoading(false)
   }, [profile])

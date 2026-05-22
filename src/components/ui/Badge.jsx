@@ -17,7 +17,7 @@ const STATUS_MAP = {
   rejected: 'danger',
   disbursed: 'success',
   overdue: 'danger',
-  completed: 'gray',
+  completed: 'success',
   blacklisted: 'danger',
 
   // Gadai
@@ -47,7 +47,7 @@ const STATUS_LABELS = {
   rejected: 'Ditolak',
   disbursed: 'Dicairkan',
   overdue: 'Jatuh Tempo',
-  completed: 'Selesai',
+  completed: 'Lunas',
   blacklisted: 'Diblokir',
   waiting_pickup: 'Tunggu Pickup',
   picked_up: 'Dijemput',

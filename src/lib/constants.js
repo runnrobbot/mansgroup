@@ -143,7 +143,6 @@ export const NAV_ITEMS = {
     { path: '/admin/approvals', label: 'Final Approval', icon: 'CheckCircle' },
     { path: '/admin/users', label: 'Kelola User', icon: 'Users' },
     { path: '/admin/transactions', label: 'Transaksi', icon: 'ArrowLeftRight' },
-    { path: '/admin/payments', label: 'Verifikasi Bayar', icon: 'Wallet' },
     { path: '/admin/blacklist', label: 'Blacklist', icon: 'Ban' },
   ],
   founder: [

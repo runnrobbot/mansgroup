@@ -155,3 +155,47 @@ export async function recomputeGadaiState(gadaiId) {
 
     return { status: gadai.status, totalPaid }
 }
+
+/**
+ * Setelah pembayaran perpanjangan gadai sukses via Midtrans:
+ * - Set status ke 'extended'
+ * - Tambah 30 hari ke due_date (dari due_date saat ini, bukan hari ini)
+ *
+ * @param {string} gadaiId
+ * @returns {Promise<{ status: string, newDueDate: string } | null>}
+ */
+export async function recomputeGadaiExtension(gadaiId) {
+    if (!gadaiId) return null
+
+    const { data: gadai, error } = await supabase
+        .from('gadai_applications')
+        .select('id, status, due_date')
+        .eq('id', gadaiId)
+        .single()
+
+    if (error || !gadai) {
+        console.error('[recomputeGadaiExtension] failed to load gadai:', error)
+        return null
+    }
+
+    // Hitung due_date baru: +30 hari dari due_date lama (atau hari ini kalau due_date kosong)
+    const base = gadai.due_date ? new Date(gadai.due_date) : new Date()
+    base.setDate(base.getDate() + 30)
+    const newDueDate = base.toISOString().split('T')[0]
+
+    const { error: updateErr } = await supabase
+        .from('gadai_applications')
+        .update({
+            status: 'extended',
+            due_date: newDueDate,
+            updated_at: new Date().toISOString(),
+        })
+        .eq('id', gadaiId)
+
+    if (updateErr) {
+        console.error('[recomputeGadaiExtension] update failed:', updateErr)
+        return null
+    }
+
+    return { status: 'extended', newDueDate }
+}

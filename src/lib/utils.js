@@ -12,16 +12,6 @@ export function formatIDR(amount) {
   }).format(amount)
 }
 
-// Format number with dots separator
-export function formatNumber(n) {
-  return new Intl.NumberFormat('id-ID').format(n)
-}
-
-// Parse IDR string back to number
-export function parseIDR(str) {
-  return parseInt(str.replace(/[^\d]/g, ''), 10) || 0
-}
-
 // Format date Indonesian
 export function formatDate(dateStr) {
   if (!dateStr) return '-'
@@ -101,34 +91,6 @@ export function calculateLoanSimulation(amount, tenor, bankCode = 'OTHER', isRew
 }
 
 /**
- * Calculate late penalty for a given overdue days
- */
-export function calculateLatePenalty(outstandingAmount, overdueDays) {
-  let totalPenalty = 0
-  let dailyRate = MANSLATER_CONFIG.LATE_PENALTY.WEEK_1_DAILY
-
-  for (let day = 1; day <= overdueDays; day++) {
-    const week = Math.ceil(day / 7)
-    if (week === 1) {
-      dailyRate = MANSLATER_CONFIG.LATE_PENALTY.WEEK_1_DAILY
-    } else {
-      dailyRate =
-        MANSLATER_CONFIG.LATE_PENALTY.WEEK_1_DAILY +
-        (week - 1) * MANSLATER_CONFIG.LATE_PENALTY.SUBSEQUENT_WEEKLY_ADD
-    }
-    totalPenalty += outstandingAmount * dailyRate
-  }
-
-  // If entered next month, add monthly interest again
-  if (overdueDays > 30) {
-    const extraMonths = Math.floor(overdueDays / 30)
-    totalPenalty += outstandingAmount * MANSLATER_CONFIG.INTEREST_RATE * extraMonths
-  }
-
-  return Math.ceil(totalPenalty)
-}
-
-/**
  * Calculate MansGadai simulation
  */
 export function calculateGadaiSimulation(amount, bankCode = 'OTHER') {
@@ -158,27 +120,6 @@ export function calculateGadaiSimulation(amount, bankCode = 'OTHER') {
       'yyyy-MM-dd'
     ),
   }
-}
-
-// Validate NIK (16-digit Indonesian national ID)
-export function validateNIK(nik) {
-  if (!nik) return false
-  const nikStr = String(nik).replace(/\D/g, '')
-  return nikStr.length === 16
-}
-
-// Validate Indonesian phone number
-export function validatePhone(phone) {
-  const cleaned = String(phone).replace(/\D/g, '')
-  return /^(08|628)\d{8,11}$/.test(cleaned)
-}
-
-// Normalize phone to +62 format
-export function normalizePhone(phone) {
-  const cleaned = String(phone).replace(/\D/g, '')
-  if (cleaned.startsWith('0')) return '+62' + cleaned.slice(1)
-  if (cleaned.startsWith('62')) return '+' + cleaned
-  return cleaned
 }
 
 // Generate unique reference number
@@ -217,12 +158,6 @@ export function calculateCreditScore({ income, loanAmount, repaymentHistory, has
   else if (score >= 550) category = 'fair'
 
   return { score, category }
-}
-
-// Truncate text
-export function truncate(str, n = 50) {
-  if (!str) return ''
-  return str.length > n ? str.slice(0, n - 1) + '…' : str
 }
 
 // Get initials from name
