@@ -6,7 +6,7 @@ import { StatusBadge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 import { loanService, paymentService } from '../../services'
 import { useAuth } from '../../contexts/AuthContext'
-import { formatIDR, formatDate, formatDateTime } from '../../lib/utils'
+import { formatIDR, formatDate, formatDateTime, getEffectiveAmount, isRevised } from '../../lib/utils'
 import {
   ArrowLeft, AlertCircle, CheckCircle, Clock, Banknote, CreditCard,
   Calendar, TrendingUp, FileText, Building2, User, Phone, Shield,
@@ -219,19 +219,36 @@ export default function LoanDetailPage() {
             {loan.status === 'approved' && (
               <div className="mt-4 p-3 bg-blue-50 rounded-xl border border-blue-100">
                 <p className="text-xs text-blue-700 font-600">
-                  Pengajuan Anda telah disetujui! Dana sedang dalam proses pencairan ke rekening {loan.bank_code} {loan.account_number}.
+                  Pengajuan Anda telah disetujui! Dana sebesar <span className="font-800">{formatIDR(getEffectiveAmount(loan, true))}</span> sedang dalam proses pencairan ke rekening {loan.bank_code} {loan.account_number}.
                 </p>
               </div>
             )}
-            {loan.status === 'revision' && (
+            {/* Banner revisi — muncul untuk SEMUA status sebelum disburse, selama amount efektif berbeda dari amount asli */}
+            {isRevised(loan, true) && ['revision', 'review', 'approved'].includes(loan.status) && (
               <div className="mt-4 p-3 bg-amber-50 rounded-xl border border-amber-200">
-                <p className="text-xs font-700 text-amber-700">Revisi Limit Pinjaman</p>
-                <p className="text-xs text-amber-600 mt-0.5">{loan.revision_note}</p>
-                {loan.suggested_amount && (
-                  <p className="text-xs font-700 text-amber-800 mt-1">
-                    Limit disetujui staff: <span className="text-base">{formatIDR(loan.suggested_amount)}</span>
+                <div className="flex items-center gap-2 mb-1">
+                  <AlertTriangle size={13} className="text-amber-600" />
+                  <p className="text-xs font-700 text-amber-700">
+                    {loan.status === 'approved' ? 'Pengajuan Disetujui dengan Revisi Limit' : 'Revisi Limit Pinjaman'}
                   </p>
+                </div>
+                <p className="text-xs text-amber-700">
+                  Pengajuan awal: <span className="line-through">{formatIDR(loan.amount)}</span>
+                  {' · '}
+                  {loan.status === 'approved' ? 'Disetujui' : 'Diusulkan'}: <span className="font-800">{formatIDR(getEffectiveAmount(loan, true))}</span>
+                </p>
+                {loan.revision_note && (
+                  <p className="text-xs text-amber-600 mt-1">Catatan dari tim: {loan.revision_note}</p>
                 )}
+                {loan.admin_notes && loan.status === 'approved' && (
+                  <p className="text-xs text-amber-600 mt-1">Catatan admin: {loan.admin_notes}</p>
+                )}
+              </div>
+            )}
+            {loan.status === 'revision' && !isRevised(loan, true) && (
+              <div className="mt-4 p-3 bg-amber-50 rounded-xl border border-amber-200">
+                <p className="text-xs font-700 text-amber-700">Pengajuan Perlu Revisi</p>
+                {loan.revision_note && <p className="text-xs text-amber-600 mt-0.5">{loan.revision_note}</p>}
               </div>
             )}
           </Card>
@@ -314,7 +331,8 @@ export default function LoanDetailPage() {
         {/* ── Loan Summary ── */}
         <SectionCard title="Detail Pinjaman" icon={Banknote}>
           <InfoGrid items={[
-            { label: 'Jumlah Pinjaman', value: formatIDR(loan.amount) },
+            isRevised(loan, true) && { label: 'Jumlah Diajukan', value: <span className="line-through text-slate-400">{formatIDR(loan.amount)}</span> },
+            { label: isRevised(loan, true) ? 'Jumlah Disetujui' : 'Jumlah Pinjaman', value: <span className={isRevised(loan, true) ? 'text-amber-700 font-800' : ''}>{formatIDR(getEffectiveAmount(loan, true))}</span> },
             { label: 'Tenor', value: `${loan.tenor} bulan` },
             { label: 'Bunga (5%/bln)', value: formatIDR(loan.total_interest) },
             { label: 'Biaya Admin', value: formatIDR(loan.platform_fee) },

@@ -3,19 +3,18 @@ import { DashboardLayout } from '../../components/layout/DashboardLayout'
 import { Card } from '../../components/ui/Card'
 import { Table, TableHead, Th, TableBody, Tr, Td, EmptyRow } from '../../components/ui/Table'
 import { loanService, gadaiService } from '../../services'
-import { formatIDR, formatDate } from '../../lib/utils'
+import { formatIDR, formatDate, getEffectiveAmount, getOriginalAmount, isRevised } from '../../lib/utils'
 import { CreditCard, Package, ArrowDownCircle, CheckCircle } from 'lucide-react'
-import toast from 'react-hot-toast'
 
 const STATUS_COLORS = {
-  pending:   'bg-slate-100 text-slate-600',
-  review:    'bg-blue-50 text-blue-700',
-  approved:  'bg-violet-50 text-violet-700',
+  pending: 'bg-slate-100 text-slate-600',
+  review: 'bg-blue-50 text-blue-700',
+  approved: 'bg-violet-50 text-violet-700',
   disbursed: 'bg-emerald-50 text-emerald-700',
-  active:    'bg-emerald-50 text-emerald-700',
-  overdue:   'bg-red-50 text-red-700',
+  active: 'bg-emerald-50 text-emerald-700',
+  overdue: 'bg-red-50 text-red-700',
   completed: 'bg-slate-100 text-slate-500',
-  rejected:  'bg-red-50 text-red-600',
+  rejected: 'bg-red-50 text-red-600',
   forfeited: 'bg-orange-50 text-orange-700',
 }
 
@@ -60,7 +59,7 @@ export default function AdminTransactions() {
   const items = tab === 'loans' ? loans : gadais
   const total = tab === 'loans' ? loanCount : gadaiCount
 
-  const totalDisbursed = loans.filter(l => l.status === 'disbursed').reduce((s, l) => s + (l.amount || 0), 0)
+  const totalDisbursed = loans.filter(l => l.status === 'disbursed').reduce((s, l) => s + getEffectiveAmount(l, true), 0)
   const totalActive = loans.filter(l => l.status === 'disbursed').length
 
   return (
@@ -111,9 +110,8 @@ export default function AdminTransactions() {
               { value: 'gadai', label: 'Gadai', icon: Package },
             ].map(({ value, label, icon: Icon }) => (
               <button key={value} onClick={() => { setTab(value); setPage(1); setFilter('') }}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-600 transition-all ${
-                  tab === value ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
-                }`}>
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-600 transition-all ${tab === value ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                  }`}>
                 <Icon size={13} />
                 {label}
               </button>
@@ -145,26 +143,41 @@ export default function AdminTransactions() {
                 <tr><td colSpan={7} className="py-10 text-center text-sm text-slate-400">Memuat data...</td></tr>
               ) : items.length === 0 ? (
                 <EmptyRow colSpan={7} message="Tidak ada transaksi" />
-              ) : items.map(item => (
-                <Tr key={item.id}>
-                  <Td><span className="font-700 text-xs font-mono text-emerald-700">{item.ref_number || '-'}</span></Td>
-                  <Td>
-                    <p className="font-600 text-sm text-slate-900">{item.profiles?.full_name || '-'}</p>
-                    <p className="text-xs text-slate-400">{item.profiles?.email || ''}</p>
-                  </Td>
-                  <Td className="font-700">{formatIDR(item.amount || item.loan_amount || 0)}</Td>
-                  {tab === 'loans' && <Td className="text-xs">{item.tenor} bulan</Td>}
-                  <Td>
-                    <span className={`text-xs font-600 px-2 py-1 rounded-lg ${STATUS_COLORS[item.status] || 'bg-slate-100 text-slate-600'}`}>
-                      {STATUS_LABELS[item.status] || item.status}
-                    </span>
-                  </Td>
-                  <Td className="text-xs text-slate-500">{formatDate(item.created_at)}</Td>
-                  {tab === 'loans' && (
-                    <Td className="text-xs text-slate-500">{item.disbursed_at ? formatDate(item.disbursed_at) : '-'}</Td>
-                  )}
-                </Tr>
-              ))}
+              ) : items.map(item => {
+                const isLoanItem = tab === 'loans'
+                const original = getOriginalAmount(item, isLoanItem)
+                const effective = getEffectiveAmount(item, isLoanItem)
+                const revised = isRevised(item, isLoanItem)
+                return (
+                  <Tr key={item.id}>
+                    <Td><span className="font-700 text-xs font-mono text-emerald-700">{item.ref_number || '-'}</span></Td>
+                    <Td>
+                      <p className="font-600 text-sm text-slate-900">{item.profiles?.full_name || '-'}</p>
+                      <p className="text-xs text-slate-400">{item.profiles?.email || ''}</p>
+                    </Td>
+                    <Td>
+                      <div className="flex flex-col">
+                        <span className="font-700 text-slate-900">{formatIDR(effective)}</span>
+                        {revised && (
+                          <span className="text-[10px] text-slate-400 line-through mt-0.5">
+                            Diajukan: {formatIDR(original)}
+                          </span>
+                        )}
+                      </div>
+                    </Td>
+                    {tab === 'loans' && <Td className="text-xs">{item.tenor} bulan</Td>}
+                    <Td>
+                      <span className={`text-xs font-600 px-2 py-1 rounded-lg ${STATUS_COLORS[item.status] || 'bg-slate-100 text-slate-600'}`}>
+                        {STATUS_LABELS[item.status] || item.status}
+                      </span>
+                    </Td>
+                    <Td className="text-xs text-slate-500">{formatDate(item.created_at)}</Td>
+                    {tab === 'loans' && (
+                      <Td className="text-xs text-slate-500">{item.disbursed_at ? formatDate(item.disbursed_at) : '-'}</Td>
+                    )}
+                  </Tr>
+                )
+              })}
             </TableBody>
           </Table>
         </Card>

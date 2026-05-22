@@ -239,3 +239,37 @@ export function getInitials(name = '') {
 export function cn(...classes) {
   return classes.filter(Boolean).join(' ')
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Amount helpers — handle revision flow consistently across UI
+//
+// Setiap loan/gadai punya 3 nilai jumlah berbeda:
+//   - Original           : yang diajukan user (loans.amount / gadai.loan_amount)
+//   - Suggested by staff : usulan revisi staff (suggested_amount)
+//   - Approved by admin  : final disetujui admin (approved_amount)
+//
+// Aturan: setelah admin menyetujui, yang authoritative adalah approved_amount.
+// Sebelum admin approve tapi staff sudah revisi → suggested_amount sebagai indikasi.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Jumlah ASLI yang diajukan user (sebelum revisi). */
+export function getOriginalAmount(item, isLoan = true) {
+  if (!item) return 0
+  return Number(isLoan ? item.amount : item.loan_amount) || 0
+}
+
+/** Jumlah EFEKTIF — yang sebenarnya berlaku saat ini.
+ *  Prioritas: approved_amount → suggested_amount → original.
+ */
+export function getEffectiveAmount(item, isLoan = true) {
+  if (!item) return 0
+  return Number(item.approved_amount ?? item.suggested_amount ?? (isLoan ? item.amount : item.loan_amount)) || 0
+}
+
+/** True jika pengajuan ini sudah direvisi (jumlah efektif ≠ jumlah asli). */
+export function isRevised(item, isLoan = true) {
+  if (!item) return false
+  const orig = getOriginalAmount(item, isLoan)
+  const eff = getEffectiveAmount(item, isLoan)
+  return orig > 0 && eff > 0 && orig !== eff
+}

@@ -81,7 +81,8 @@ export default function AdminApprovals() {
   }
 
   const openDisburse = () => {
-    const suggested = selected.suggested_amount || selected.net_disbursement || selected.amount || selected.loan_amount
+    // Prioritas: approved_amount (final dari admin) → suggested_amount (revisi staff) → original
+    const suggested = selected.approved_amount || selected.suggested_amount || selected.net_disbursement || selected.amount || selected.loan_amount
     setDisburseAmount(String(suggested || ''))
     setDisburseRef('')
     setProofUrl('')
@@ -119,12 +120,17 @@ export default function AdminApprovals() {
     setActionLoading(true)
 
     // Build update payload — approved_at only exists on loans table, not gadai_applications
+    // approved_amount selalu di-set: pakai suggested_amount kalau ada revisi staff,
+    // kalau tidak pakai jumlah asli — supaya semua downstream UI bisa baca approved_amount sebagai source of truth.
+    const originalAmount = isLoan ? selected.amount : selected.loan_amount
+    const finalApprovedAmount = selected.suggested_amount ?? originalAmount
+
     const baseUpdate = {
       status: 'approved',
       admin_notes: notes || null,
       approved_by: profile?.id,
+      approved_amount: finalApprovedAmount,
       updated_at: new Date().toISOString(),
-      ...(selected.suggested_amount ? { approved_amount: selected.suggested_amount } : {}),
     }
     if (isLoan) {
       baseUpdate.approved_at = new Date().toISOString()
@@ -134,11 +140,15 @@ export default function AdminApprovals() {
     const { error } = await svc.updateFull(selected.id, baseUpdate)
 
     if (!error && selected.user_id) {
+      const wasRevised = selected.suggested_amount && selected.suggested_amount !== originalAmount
+      const msg = wasRevised
+        ? `Pengajuan ${selected.ref_number} disetujui dengan nilai ${formatIDR(finalApprovedAmount)} (direvisi dari ${formatIDR(originalAmount)} sesuai penilaian tim kami). Dana akan segera dicairkan.`
+        : `Pengajuan ${selected.ref_number} telah disetujui dengan nilai ${formatIDR(finalApprovedAmount)}. Tim kami akan segera memproses pencairan.`
       await notificationService.send({
         userId: selected.user_id,
         type: 'approval',
-        title: 'Pengajuan Disetujui ✓',
-        message: `Pengajuan ${selected.ref_number} telah disetujui${selected.suggested_amount ? ` dengan nilai ${formatIDR(selected.suggested_amount)}` : ''}. Tim kami akan segera memproses pencairan.`,
+        title: wasRevised ? 'Pengajuan Disetujui (dengan Revisi)' : 'Pengajuan Disetujui',
+        message: msg,
       })
     }
 
@@ -297,7 +307,7 @@ export default function AdminApprovals() {
               <Th>No. Ref</Th>
               <Th>Pemohon</Th>
               <Th>Diajukan</Th>
-              <Th>Revisi Staff</Th>
+              <Th>Disetujui</Th>
               {isLoan && <Th>Tenor</Th>}
               {!isLoan && <Th>Barang</Th>}
               <Th>Status</Th>
@@ -309,33 +319,44 @@ export default function AdminApprovals() {
                 <tr><td colSpan={9} className="py-10 text-center text-sm text-slate-400">Memuat data...</td></tr>
               ) : items.length === 0 ? (
                 <EmptyRow colSpan={9} message="Tidak ada pengajuan untuk disetujui" />
-              ) : items.map(item => (
-                <Tr key={item.id}>
-                  <Td><span className="font-700 text-xs font-mono text-violet-700">{item.ref_number}</span></Td>
-                  <Td>
-                    <p className="font-600 text-sm text-slate-900">{item.profiles?.full_name || '-'}</p>
-                    <p className="text-xs text-slate-400">{item.profiles?.email}</p>
-                  </Td>
-                  <Td className="font-700">{formatIDR(isLoan ? item.amount : item.loan_amount)}</Td>
-                  <Td>
-                    {item.suggested_amount ? (
-                      <span className="text-xs font-700 text-amber-700 bg-amber-50 px-2 py-1 rounded-lg">
-                        → {formatIDR(item.suggested_amount)}
-                      </span>
-                    ) : <span className="text-slate-300 text-xs">—</span>}
-                  </Td>
-                  {isLoan && <Td className="text-sm">{item.tenor} bln</Td>}
-                  {!isLoan && <Td className="text-sm">{item.item_name || '-'}</Td>}
-                  <Td><StatusBadge status={item.status} /></Td>
-                  <Td className="text-xs text-slate-500">{formatDate(item.created_at)}</Td>
-                  <Td align="center">
-                    <button onClick={() => openDetail(item)}
-                      className="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 mx-auto">
-                      <Eye size={14} />
-                    </button>
-                  </Td>
-                </Tr>
-              ))}
+              ) : items.map(item => {
+                const original = isLoan ? item.amount : item.loan_amount
+                // Untuk status 'review' → tampilkan suggested_amount (usulan staff)
+                // Untuk status 'approved' → tampilkan approved_amount (final admin)
+                const revisedValue = item.status === 'review' ? item.suggested_amount : item.approved_amount
+                const wasRevised = revisedValue && revisedValue !== original
+                return (
+                  <Tr key={item.id}>
+                    <Td><span className="font-700 text-xs font-mono text-violet-700">{item.ref_number}</span></Td>
+                    <Td>
+                      <p className="font-600 text-sm text-slate-900">{item.profiles?.full_name || '-'}</p>
+                      <p className="text-xs text-slate-400">{item.profiles?.email}</p>
+                    </Td>
+                    <Td className="font-700">{formatIDR(original)}</Td>
+                    <Td>
+                      {revisedValue ? (
+                        <span className={`text-xs font-700 px-2 py-1 rounded-lg ${
+                          wasRevised
+                            ? (item.status === 'review' ? 'text-amber-700 bg-amber-50' : 'text-emerald-700 bg-emerald-50')
+                            : 'text-slate-500 bg-slate-50'
+                        }`}>
+                          {wasRevised && '→ '}{formatIDR(revisedValue)}
+                        </span>
+                      ) : <span className="text-slate-300 text-xs">—</span>}
+                    </Td>
+                    {isLoan && <Td className="text-sm">{item.tenor} bln</Td>}
+                    {!isLoan && <Td className="text-sm">{item.item_name || '-'}</Td>}
+                    <Td><StatusBadge status={item.status} /></Td>
+                    <Td className="text-xs text-slate-500">{formatDate(item.created_at)}</Td>
+                    <Td align="center">
+                      <button onClick={() => openDetail(item)}
+                        className="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 mx-auto">
+                        <Eye size={14} />
+                      </button>
+                    </Td>
+                  </Tr>
+                )
+              })}
             </TableBody>
           </Table>
         </Card>
@@ -354,8 +375,8 @@ export default function AdminApprovals() {
                   </div>
                 </div>
 
-                {/* Revision warning */}
-                {selected.suggested_amount && (
+                {/* Revision warning — hanya muncul saat status 'review' (sebelum admin approve final) */}
+                {selected.suggested_amount && selected.status === 'review' && (
                   <div className="mb-4 p-3 bg-amber-50 rounded-xl border border-amber-200">
                     <div className="flex items-center gap-2 mb-1">
                       <AlertTriangle size={14} className="text-amber-600" />
@@ -366,12 +387,20 @@ export default function AdminApprovals() {
                       <span className="text-xs text-slate-500 line-through">{formatIDR(isLoan ? selected.amount : selected.loan_amount)}</span>
                       <span className="text-sm font-800 text-amber-800">→ {formatIDR(selected.suggested_amount)}</span>
                     </div>
+                    <p className="text-xs text-amber-600 mt-2 italic">
+                      Saat Anda menyetujui, nilai inilah yang akan menjadi final approval ke nasabah.
+                    </p>
                   </div>
                 )}
 
                 <div className="mb-5">
-                  <InfoRow label={isLoan ? 'Jumlah Diajukan' : 'Nilai Gadai'} value={formatIDR(isLoan ? selected.amount : selected.loan_amount)} />
-                  {selected.suggested_amount && <InfoRow label="Nilai Disetujui Staff" value={<span className="text-amber-700 font-800">{formatIDR(selected.suggested_amount)}</span>} />}
+                  <InfoRow label={isLoan ? 'Jumlah Diajukan' : 'Nilai Gadai Diajukan'} value={formatIDR(isLoan ? selected.amount : selected.loan_amount)} />
+                  {selected.suggested_amount && selected.status === 'review' && (
+                    <InfoRow label="Usulan Revisi Staff" value={<span className="text-amber-700 font-800">{formatIDR(selected.suggested_amount)}</span>} />
+                  )}
+                  {selected.approved_amount && selected.status !== 'review' && (
+                    <InfoRow label="Nilai Disetujui Final" value={<span className="text-emerald-700 font-800">{formatIDR(selected.approved_amount)}</span>} />
+                  )}
                   {isLoan && <InfoRow label="Tenor" value={`${selected.tenor} bulan`} />}
                   {isLoan && <InfoRow label="Bunga (5%/bln)" value={formatIDR((selected.amount || 0) * 0.05 * (selected.tenor || 1))} />}
                   <InfoRow label="Dana Bersih" value={<span className="text-emerald-700 font-800">{formatIDR(selected.net_disbursement || (isLoan ? selected.amount : selected.loan_amount))}</span>} />
@@ -463,12 +492,17 @@ export default function AdminApprovals() {
                     <input type="number" className="input-field" value={disburseAmount}
                       onChange={e => setDisburseAmount(e.target.value)}
                       placeholder="Masukkan jumlah pencairan" />
-                    {selected.suggested_amount && (
+                    {selected.approved_amount && selected.approved_amount !== (isLoan ? selected.amount : selected.loan_amount) && (
                       <p className="text-xs text-amber-600 mt-1">
-                        Nilai disetujui staff: {formatIDR(selected.suggested_amount)}
+                        Nilai disetujui (direvisi): {formatIDR(selected.approved_amount)} · dari pengajuan asli {formatIDR(isLoan ? selected.amount : selected.loan_amount)}
                       </p>
                     )}
-                    {!selected.suggested_amount && selected.net_disbursement && (
+                    {selected.approved_amount && selected.approved_amount === (isLoan ? selected.amount : selected.loan_amount) && (
+                      <p className="text-xs text-slate-400 mt-1">
+                        Nilai disetujui: {formatIDR(selected.approved_amount)}
+                      </p>
+                    )}
+                    {!selected.approved_amount && selected.net_disbursement && (
                       <p className="text-xs text-slate-400 mt-1">
                         Dana bersih nasabah: {formatIDR(selected.net_disbursement)}
                       </p>

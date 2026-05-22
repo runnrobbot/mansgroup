@@ -8,7 +8,7 @@ import { Modal, ModalBody } from '../../components/ui/Modal'
 import { useConfirm } from '../../components/ui/ConfirmModal'
 import { useAuth } from '../../contexts/AuthContext'
 import { gadaiService } from '../../services'
-import { formatIDR, formatDate, formatDateTime, calculateGadaiSimulation } from '../../lib/utils'
+import { formatIDR, formatDate, formatDateTime, calculateGadaiSimulation, getEffectiveAmount, isRevised } from '../../lib/utils'
 import { Plus, Eye, RefreshCw, AlertTriangle, Calendar, Package, Lock, Clock, ArrowRight, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -178,18 +178,36 @@ export default function MyGadaiPage() {
       )
     }
     if (pendingGadai) {
+      const eff = getEffectiveAmount(pendingGadai, false)
+      const wasRevised = isRevised(pendingGadai, false)
+      const isApproved = pendingGadai.status === 'approved'
       return (
-        <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-100 rounded-2xl">
-          <Clock size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
+        <div className={`flex items-start gap-3 p-4 rounded-2xl ${
+          isApproved ? 'bg-emerald-50 border border-emerald-100' : 'bg-amber-50 border border-amber-100'
+        }`}>
+          <Clock size={16} className={`flex-shrink-0 mt-0.5 ${isApproved ? 'text-emerald-500' : 'text-amber-500'}`} />
           <div className="flex-1">
-            <p className="text-sm font-700 text-amber-800">Ada pengajuan yang sedang diproses</p>
-            <p className="text-xs text-amber-600 mt-0.5">
-              Gadai <span className="font-600">{pendingGadai.ref_number}</span> ({pendingGadai.item_name || 'barang'}) sedang dalam review tim kami.
+            <p className={`text-sm font-700 ${isApproved ? 'text-emerald-800' : 'text-amber-800'}`}>
+              {isApproved ? 'Pengajuan Gadai Disetujui — Menunggu Pencairan' : 'Ada pengajuan yang sedang diproses'}
+            </p>
+            <p className={`text-xs mt-0.5 ${isApproved ? 'text-emerald-700' : 'text-amber-600'}`}>
+              {wasRevised ? (
+                <>
+                  Gadai <span className="font-600">{pendingGadai.ref_number}</span> ({pendingGadai.item_name || 'barang'}) {isApproved ? 'disetujui' : 'sedang direview'} dengan nilai{' '}
+                  <span className="font-700">{formatIDR(eff)}</span> (direvisi dari pengajuan asli {formatIDR(pendingGadai.loan_amount)} oleh tim kami).
+                </>
+              ) : (
+                <>
+                  Gadai <span className="font-600">{pendingGadai.ref_number}</span> ({pendingGadai.item_name || 'barang'}) {isApproved ? 'sudah disetujui, menunggu pencairan dana.' : 'sedang dalam review tim kami.'}
+                </>
+              )}
             </p>
           </div>
           <button
             onClick={() => { setSelected(pendingGadai); setDetailOpen(true) }}
-            className="ml-auto text-xs font-600 text-amber-600 hover:text-amber-700 flex items-center gap-1 whitespace-nowrap"
+            className={`ml-auto text-xs font-600 flex items-center gap-1 whitespace-nowrap ${
+              isApproved ? 'text-emerald-700 hover:text-emerald-800' : 'text-amber-600 hover:text-amber-700'
+            }`}
           >
             Lihat <ArrowRight size={12} />
           </button>
@@ -266,50 +284,63 @@ export default function MyGadaiPage() {
                 <tr><td colSpan={6} className="py-8 text-center text-sm text-slate-400">Memuat...</td></tr>
               ) : gadais.length === 0 ? (
                 <EmptyRow colSpan={6} message="Belum ada gadai" />
-              ) : gadais.map(g => (
-                <Tr key={g.id}>
-                  <Td><span className="font-600 text-xs font-mono">{g.ref_number || '-'}</span></Td>
-                  <Td>
-                    <div>
-                      <p className="font-600 text-sm text-slate-900">{g.item_name || '-'}</p>
-                      <p className="text-xs text-slate-400">{g.item_category || '-'}</p>
-                    </div>
-                  </Td>
-                  <Td className="font-700">{formatIDR(g.loan_amount)}</Td>
-                  <Td>
-                    <span className={`text-xs font-600 px-2 py-1 rounded-lg ${STATUS_INFO[g.status]?.color || 'bg-slate-100 text-slate-600'}`}>
-                      {STATUS_INFO[g.status]?.label || g.status}
-                    </span>
-                  </Td>
-                  <Td className="text-xs text-slate-500">
-                    {g.due_date ? (
-                      <div className="flex items-center gap-1">
-                        <Calendar size={11} />
-                        {formatDate(g.due_date)}
+              ) : gadais.map(g => {
+                const eff = getEffectiveAmount(g, false)
+                const revised = isRevised(g, false)
+                return (
+                  <Tr key={g.id}>
+                    <Td><span className="font-600 text-xs font-mono">{g.ref_number || '-'}</span></Td>
+                    <Td>
+                      <div>
+                        <p className="font-600 text-sm text-slate-900">{g.item_name || '-'}</p>
+                        <p className="text-xs text-slate-400">{g.item_category || '-'}</p>
                       </div>
-                    ) : '-'}
-                  </Td>
-                  <Td align="center">
-                    <div className="flex items-center justify-center gap-1">
-                      <button
-                        onClick={() => { setSelected(g); setDetailOpen(true) }}
-                        className="w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 transition-colors"
-                      >
-                        <Eye size={13} />
-                      </button>
-                      {['active', 'due', 'overdue'].includes(g.status) && (
+                    </Td>
+                    <Td>
+                      <div className="flex flex-col">
+                        <span className="font-700">{formatIDR(eff)}</span>
+                        {revised && (
+                          <span className="text-[10px] text-amber-600 mt-0.5">
+                            direvisi dari {formatIDR(g.loan_amount)}
+                          </span>
+                        )}
+                      </div>
+                    </Td>
+                    <Td>
+                      <span className={`text-xs font-600 px-2 py-1 rounded-lg ${STATUS_INFO[g.status]?.color || 'bg-slate-100 text-slate-600'}`}>
+                        {STATUS_INFO[g.status]?.label || g.status}
+                      </span>
+                    </Td>
+                    <Td className="text-xs text-slate-500">
+                      {g.due_date ? (
+                        <div className="flex items-center gap-1">
+                          <Calendar size={11} />
+                          {formatDate(g.due_date)}
+                        </div>
+                      ) : '-'}
+                    </Td>
+                    <Td align="center">
+                      <div className="flex items-center justify-center gap-1">
                         <button
-                          onClick={() => handleExtend(g)}
-                          disabled={actionLoading}
-                          className="w-7 h-7 rounded-lg hover:bg-amber-50 flex items-center justify-center text-amber-600 transition-colors disabled:opacity-50"
+                          onClick={() => { setSelected(g); setDetailOpen(true) }}
+                          className="w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 transition-colors"
                         >
-                          <RefreshCw size={13} />
+                          <Eye size={13} />
                         </button>
-                      )}
-                    </div>
-                  </Td>
-                </Tr>
-              ))}
+                        {['active', 'due', 'overdue'].includes(g.status) && (
+                          <button
+                            onClick={() => handleExtend(g)}
+                            disabled={actionLoading}
+                            className="w-7 h-7 rounded-lg hover:bg-amber-50 flex items-center justify-center text-amber-600 transition-colors disabled:opacity-50"
+                          >
+                            <RefreshCw size={13} />
+                          </button>
+                        )}
+                      </div>
+                    </Td>
+                  </Tr>
+                )
+              })}
             </TableBody>
           </Table>
         </Card>
@@ -335,14 +366,32 @@ export default function MyGadaiPage() {
                     </div>
                   </div>
                 </div>
+
+                {/* Banner revisi — muncul kalau staff sudah usulkan revisi atau admin sudah set approved_amount berbeda dari original */}
+                {isRevised(selected, false) && (
+                  <div className="p-3 bg-amber-50 rounded-xl border border-amber-200">
+                    <div className="flex items-center gap-2 mb-1">
+                      <AlertTriangle size={13} className="text-amber-600" />
+                      <p className="text-xs font-700 text-amber-700">Limit Direvisi oleh Tim Kami</p>
+                    </div>
+                    <p className="text-xs text-amber-700">
+                      Pengajuan awal: <span className="line-through">{formatIDR(selected.loan_amount)}</span> · Disetujui: <span className="font-800">{formatIDR(getEffectiveAmount(selected, false))}</span>
+                    </p>
+                    {selected.revision_note && (
+                      <p className="text-xs text-amber-600 mt-1">Catatan: {selected.revision_note}</p>
+                    )}
+                  </div>
+                )}
+
                 <div className="grid grid-cols-2 gap-4">
                   {[
                     { label: 'Ref. Nomor',        value: selected.ref_number || '-' },
-                    { label: 'Nilai Pinjaman',     value: formatIDR(selected.loan_amount) },
-                    { label: 'Jatuh Tempo',        value: selected.due_date ? formatDate(selected.due_date) : '-' },
-                    { label: 'Jadwal Pickup',      value: selected.pickup_schedule ? formatDateTime(selected.pickup_schedule) : '-' },
-                    { label: 'Tanggal Pengajuan',  value: formatDateTime(selected.created_at) },
-                    { label: 'Biaya Perpanjangan', value: formatIDR((selected.loan_amount || 0) * 0.1) },
+                    { label: 'Nilai Diajukan',    value: formatIDR(selected.loan_amount) },
+                    { label: 'Nilai Disetujui',   value: <span className={isRevised(selected, false) ? 'text-amber-700 font-800' : ''}>{formatIDR(getEffectiveAmount(selected, false))}</span> },
+                    { label: 'Jatuh Tempo',       value: selected.due_date ? formatDate(selected.due_date) : '-' },
+                    { label: 'Jadwal Pickup',     value: selected.pickup_schedule ? formatDateTime(selected.pickup_schedule) : '-' },
+                    { label: 'Tanggal Pengajuan', value: formatDateTime(selected.created_at) },
+                    { label: 'Biaya Perpanjangan', value: formatIDR(getEffectiveAmount(selected, false) * 0.1) },
                   ].map(({ label, value }) => (
                     <div key={label}>
                       <p className="text-xs text-slate-400 mb-0.5">{label}</p>
@@ -359,7 +408,7 @@ export default function MyGadaiPage() {
                 {['active', 'due', 'overdue'].includes(selected.status) && (
                   <Button icon={RefreshCw} className="w-full" loading={actionLoading}
                     onClick={() => { setDetailOpen(false); handleExtend(selected) }}>
-                    Perpanjang Gadai (+{formatIDR((selected.loan_amount || 0) * 0.1)})
+                    Perpanjang Gadai (+{formatIDR(getEffectiveAmount(selected, false) * 0.1)})
                   </Button>
                 )}
               </div>

@@ -6,7 +6,7 @@ import { StatusBadge } from '../../components/ui/Badge'
 import { Table, TableHead, Th, TableBody, Tr, Td, EmptyRow } from '../../components/ui/Table'
 import { useAuth } from '../../contexts/AuthContext'
 import { loanService } from '../../services'
-import { formatIDR, formatDate } from '../../lib/utils'
+import { formatIDR, formatDate, getEffectiveAmount, isRevised } from '../../lib/utils'
 import { Plus, Eye, Clock, Lock, ArrowRight, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -133,13 +133,15 @@ export default function MyLoansPage() {
       )
     }
     if (activeLoan) {
+      const eff = getEffectiveAmount(activeLoan, true)
+      const wasRevised = isRevised(activeLoan, true)
       return (
         <div className="flex items-start gap-3 p-4 bg-slate-50 border border-slate-200 rounded-2xl">
           <Lock size={16} className="text-slate-400 flex-shrink-0 mt-0.5" />
           <div className="flex-1">
             <p className="text-sm font-700 text-slate-700">Sudah ada pinjaman aktif</p>
             <p className="text-xs text-slate-500 mt-0.5">
-              Pinjaman <span className="font-600">{activeLoan.ref_number}</span> ({formatIDR(activeLoan.amount)}) sedang aktif.
+              Pinjaman <span className="font-600">{activeLoan.ref_number}</span> ({formatIDR(eff)}{wasRevised && ' · direvisi'}) sedang aktif.
               Selesaikan terlebih dahulu sebelum mengajukan pinjaman baru.
             </p>
           </div>
@@ -150,17 +152,34 @@ export default function MyLoansPage() {
       )
     }
     if (pendingLoan) {
+      const eff = getEffectiveAmount(pendingLoan, true)
+      const wasRevised = isRevised(pendingLoan, true)
+      const isApproved = pendingLoan.status === 'approved'
       return (
-        <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-100 rounded-2xl">
-          <Clock size={16} className="text-amber-500 flex-shrink-0 mt-0.5" />
+        <div className={`flex items-start gap-3 p-4 rounded-2xl ${
+          isApproved ? 'bg-emerald-50 border border-emerald-100' : 'bg-amber-50 border border-amber-100'
+        }`}>
+          <Clock size={16} className={`flex-shrink-0 mt-0.5 ${isApproved ? 'text-emerald-500' : 'text-amber-500'}`} />
           <div className="flex-1">
-            <p className="text-sm font-700 text-amber-800">Ada pengajuan yang sedang diproses</p>
-            <p className="text-xs text-amber-600 mt-0.5">
-              Pengajuan <span className="font-600">{pendingLoan.ref_number}</span> ({formatIDR(pendingLoan.amount)}) sedang dalam review.
-              Tunggu hingga selesai sebelum mengajukan yang baru.
+            <p className={`text-sm font-700 ${isApproved ? 'text-emerald-800' : 'text-amber-800'}`}>
+              {isApproved ? 'Pengajuan Disetujui — Menunggu Pencairan' : 'Ada pengajuan yang sedang diproses'}
+            </p>
+            <p className={`text-xs mt-0.5 ${isApproved ? 'text-emerald-700' : 'text-amber-600'}`}>
+              {wasRevised ? (
+                <>
+                  Pengajuan <span className="font-600">{pendingLoan.ref_number}</span> {isApproved ? 'disetujui' : 'sedang direview'} dengan nilai{' '}
+                  <span className="font-700">{formatIDR(eff)}</span> (direvisi dari pengajuan asli {formatIDR(pendingLoan.amount)} oleh tim kami).
+                </>
+              ) : (
+                <>
+                  Pengajuan <span className="font-600">{pendingLoan.ref_number}</span> ({formatIDR(eff)}) {isApproved ? 'sudah disetujui, menunggu pencairan dana.' : 'sedang dalam review.'}
+                </>
+              )}
             </p>
           </div>
-          <Link to={`/dashboard/loans/${pendingLoan.id}`} className="ml-auto text-xs font-600 text-amber-600 hover:text-amber-700 flex items-center gap-1 whitespace-nowrap">
+          <Link to={`/dashboard/loans/${pendingLoan.id}`} className={`ml-auto text-xs font-600 flex items-center gap-1 whitespace-nowrap ${
+            isApproved ? 'text-emerald-700 hover:text-emerald-800' : 'text-amber-600 hover:text-amber-700'
+          }`}>
             Lihat <ArrowRight size={12} />
           </Link>
         </div>
@@ -201,23 +220,36 @@ export default function MyLoansPage() {
               ) : loans.length === 0 ? (
                 <EmptyRow colSpan={6} message="Belum ada pinjaman" />
               ) : (
-                loans.map(l => (
-                  <Tr key={l.id}>
-                    <Td><span className="font-600 text-xs">{l.ref_number || '-'}</span></Td>
-                    <Td className="font-600">{formatIDR(l.amount)}</Td>
-                    <Td>{l.tenor} bulan</Td>
-                    <Td><StatusBadge status={l.status} /></Td>
-                    <Td className="text-xs text-slate-500">{formatDate(l.created_at)}</Td>
-                    <Td align="center">
-                      <Link
-                        to={`/dashboard/loans/${l.id}`}
-                        className="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 mx-auto"
-                      >
-                        <Eye size={14} />
-                      </Link>
-                    </Td>
-                  </Tr>
-                ))
+                loans.map(l => {
+                  const eff = getEffectiveAmount(l, true)
+                  const revised = isRevised(l, true)
+                  return (
+                    <Tr key={l.id}>
+                      <Td><span className="font-600 text-xs">{l.ref_number || '-'}</span></Td>
+                      <Td>
+                        <div className="flex flex-col">
+                          <span className="font-600">{formatIDR(eff)}</span>
+                          {revised && (
+                            <span className="text-[10px] text-amber-600 mt-0.5">
+                              direvisi dari {formatIDR(l.amount)}
+                            </span>
+                          )}
+                        </div>
+                      </Td>
+                      <Td>{l.tenor} bulan</Td>
+                      <Td><StatusBadge status={l.status} /></Td>
+                      <Td className="text-xs text-slate-500">{formatDate(l.created_at)}</Td>
+                      <Td align="center">
+                        <Link
+                          to={`/dashboard/loans/${l.id}`}
+                          className="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-500 mx-auto"
+                        >
+                          <Eye size={14} />
+                        </Link>
+                      </Td>
+                    </Tr>
+                  )
+                })
               )}
             </TableBody>
           </Table>
