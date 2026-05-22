@@ -483,16 +483,6 @@ export const analyticsService = {
 
 }
 
-// ─── Midtrans ─────────────────────────────────────────────────────────────────
-//
-// Frontend TIDAK BOLEH punya Midtrans Server Key (akan bocor di JS bundle).
-// Snap token harus di-generate di backend, di sini kami pakai Supabase Edge Function.
-//
-// Env yang dipakai oleh frontend:
-//   VITE_MIDTRANS_CLIENT_KEY    → client key (publik, aman di-expose)
-//   VITE_MIDTRANS_SNAP_URL      → snap.js URL (default: production app.midtrans.com)
-//
-// Edge function ada di: supabase/functions/midtrans-snap/index.ts
 export const midtransService = {
   /**
    * Request Snap token dari Supabase Edge Function.
