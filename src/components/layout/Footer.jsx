@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Mail, Phone, Share2, MessageCircle, Globe, MapPin, Building2, Lock, ShieldCheck } from 'lucide-react'
+import { Mail, Phone, MapPin, Building2, Lock, ShieldCheck, Instagram } from 'lucide-react'
 
 export function Footer() {
   const year = new Date().getFullYear()
@@ -7,7 +7,7 @@ export function Footer() {
   return (
     <footer className="bg-slate-900 text-slate-400">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-16 pb-8">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10 mb-12">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-10 mb-12">
           {/* Brand */}
           <div className="lg:col-span-1">
             <Link to="/" className="flex items-center gap-2.5 mb-4">
@@ -17,19 +17,14 @@ export function Footer() {
               Platform fintech Indonesia yang menghadirkan layanan pinjaman dan gadai online modern, aman, dan terpercaya.
             </p>
             <div className="flex items-center gap-2">
-              {[
-                { icon: Share2, href: '#' },
-                { icon: MessageCircle, href: '#' },
-                { icon: Globe, href: '#' },
-              ].map(({ icon: Icon, href }, i) => (
-                <a
-                  key={i}
-                  href={href}
-                  className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-emerald-600 flex items-center justify-center transition-colors"
-                >
-                  <Icon size={14} />
-                </a>
-              ))}
+              <a
+                href="https://instagram.com/mans.group.official"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-pink-600 flex items-center justify-center transition-colors"
+              >
+                <Instagram size={14} />
+              </a>
             </div>
           </div>
 
@@ -65,8 +60,8 @@ export function Footer() {
               </li>
               <li className="flex items-center gap-2.5 text-sm">
                 <Mail size={14} className="text-emerald-500 flex-shrink-0" />
-                <a href="mailto:cs@mansgroup.id" className="hover:text-emerald-400 transition-colors">
-                  cs@mansgroup.id
+                <a href="mailto:mans.group.official@gmail.com" className="hover:text-emerald-400 transition-colors">
+                  mans.group.official@gmail.com
                 </a>
               </li>
               <li className="flex items-center gap-2.5 text-sm">

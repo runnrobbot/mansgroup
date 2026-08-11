@@ -131,7 +131,7 @@ export default function HomePage() {
                   Pelajari MansLater
                 </Link>
                 <Link to="/auth/register" className="text-sm font-600 text-emerald-700 hover:text-emerald-800 flex items-center gap-1">
-                  Ajukan Sekarang <ArrowUpRight size={13} />
+                  Ajukan Sekarang <ArrowRight size={13} />
                 </Link>
               </div>
             </div>
@@ -175,7 +175,7 @@ export default function HomePage() {
                   Pelajari MansGadai
                 </Link>
                 <Link to="/auth/register" className="text-sm font-600 text-emerald-400 hover:text-emerald-300 flex items-center gap-1">
-                  Ajukan Sekarang <ArrowUpRight size={13} />
+                  Ajukan Sekarang <ArrowRight size={13} />
                 </Link>
               </div>
             </div>
