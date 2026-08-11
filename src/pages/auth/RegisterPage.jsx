@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useForm } from 'react-hook-form'
 import { motion } from 'framer-motion'
-import { Eye, EyeOff, Zap, CheckCircle, ArrowRight, Rocket } from 'lucide-react'
+import { Eye, EyeOff, CheckCircle, ArrowRight, Rocket } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 
 const STRENGTH_LABELS = ['Sangat Lemah', 'Lemah', 'Cukup', 'Kuat', 'Sangat Kuat']
@@ -68,10 +68,7 @@ export default function RegisterPage() {
       <div className="hidden lg:flex lg:w-5/12 bg-gradient-to-br from-slate-900 via-emerald-950 to-slate-900 flex-col justify-between p-12 relative overflow-hidden">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_30%_50%,rgba(52,183,136,0.12),transparent)]" />
         <Link to="/" className="flex items-center gap-2.5 relative z-10">
-          <div className="w-9 h-9 rounded-[10px] bg-gradient-to-br from-emerald-600 to-emerald-400 flex items-center justify-center">
-            <Zap size={17} className="text-white" fill="white" />
-          </div>
-          <span className="text-lg font-800 text-white">MansGroup</span>
+          <img src="/mansgroup.png" alt="MansGroup" className="h-8 w-auto" />
         </Link>
         <div className="relative z-10">
           <h2 className="text-3xl font-800 text-white mb-4 flex items-center gap-2">Bergabung dengan<br />MansGroup <Rocket size={26} className="text-emerald-400" /></h2>
@@ -99,10 +96,7 @@ export default function RegisterPage() {
         >
           <div className="mb-7">
             <Link to="/" className="flex items-center gap-2 mb-7 lg:hidden">
-              <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-emerald-700 to-emerald-500 flex items-center justify-center">
-                <Zap size={13} className="text-white" fill="white" />
-              </div>
-              <span className="text-sm font-800 text-slate-900">MansGroup</span>
+              <img src="/mansgroup.png" alt="MansGroup" className="h-6 w-auto" />
             </Link>
             <h1 className="text-2xl font-800 text-slate-900 tracking-tight">Buat Akun Baru</h1>
             <p className="text-sm text-slate-500 mt-1.5">Sudah punya akun? <Link to="/auth/login" className="text-emerald-600 font-600 hover:text-emerald-700">Masuk di sini</Link></p>

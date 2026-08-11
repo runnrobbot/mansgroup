@@ -2,7 +2,7 @@
 import { Link } from 'react-router-dom'
 import { useAuth } from '../../contexts/AuthContext'
 import { motion } from 'framer-motion'
-import { Zap, ArrowLeft, Mail } from 'lucide-react'
+import { ArrowLeft, Mail } from 'lucide-react'
 
 export default function ForgotPasswordPage() {
   const { resetPassword } = useAuth()
@@ -22,10 +22,7 @@ export default function ForgotPasswordPage() {
     <div className='min-h-screen bg-slate-50 flex items-center justify-center p-4'>
       <motion.div className='card-premium p-8 max-w-md w-full' initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
         <Link to='/' className='flex items-center gap-2 mb-7'>
-          <div className='w-7 h-7 rounded-lg bg-gradient-to-br from-emerald-700 to-emerald-500 flex items-center justify-center'>
-            <Zap size={13} className='text-white' fill='white' />
-          </div>
-          <span className='text-sm font-800 text-slate-900'>MansGroup</span>
+          <img src="/mansgroup.png" alt="MansGroup" className="h-6 w-auto" />
         </Link>
         {sent ? (
           <div className='text-center'>

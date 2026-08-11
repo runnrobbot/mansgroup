@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Zap, Mail, Phone, Share2, MessageCircle, Globe, MapPin, Building2, Lock, ShieldCheck } from 'lucide-react'
+import { Mail, Phone, Share2, MessageCircle, Globe, MapPin, Building2, Lock, ShieldCheck } from 'lucide-react'
 
 export function Footer() {
   const year = new Date().getFullYear()
@@ -11,13 +11,7 @@ export function Footer() {
           {/* Brand */}
           <div className="lg:col-span-1">
             <Link to="/" className="flex items-center gap-2.5 mb-4">
-              <div className="w-9 h-9 rounded-[10px] bg-gradient-to-br from-emerald-600 to-emerald-400 flex items-center justify-center">
-                <Zap size={18} className="text-white" fill="white" />
-              </div>
-              <div className="flex flex-col leading-none">
-                <span className="text-base font-800 text-white tracking-tight">MansGroup</span>
-                <span className="text-[10px] text-slate-500 font-500 tracking-widest">THE NEXT GEN FINANCIAL ECO SYSTEM</span>
-              </div>
+              <img src="/mansgroup.png" alt="MansGroup" className="h-9 w-auto" />
             </Link>
             <p className="text-sm leading-relaxed mb-5">
               Platform fintech Indonesia yang menghadirkan layanan pinjaman dan gadai online modern, aman, dan terpercaya.

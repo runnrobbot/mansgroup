@@ -6,50 +6,6 @@ export const ROLES = {
   FOUNDER: 'founder',
 }
 
-// Loan status workflow
-export const LOAN_STATUS = {
-  PENDING: 'pending',
-  REVIEW: 'review',
-  APPROVED: 'approved',
-  REJECTED: 'rejected',
-  DISBURSED: 'disbursed',
-  OVERDUE: 'overdue',
-  COMPLETED: 'completed',
-  BLACKLISTED: 'blacklisted',
-}
-
-// Gadai / Pawn status workflow
-export const GADAI_STATUS = {
-  PENDING: 'pending',
-  WAITING_PICKUP: 'waiting_pickup',
-  PICKED_UP: 'picked_up',
-  RECEIVED: 'received',
-  ACTIVE: 'active',
-  DUE: 'due',
-  EXTENDED: 'extended',
-  OVERDUE: 'overdue',
-  COMPLETED: 'completed',
-  FORFEITED: 'forfeited',
-  REJECTED: 'rejected',
-}
-
-// Payment status
-export const PAYMENT_STATUS = {
-  PENDING: 'pending',
-  VERIFICATION: 'verification',
-  CONFIRMED: 'confirmed',
-  FAILED: 'failed',
-  REFUNDED: 'refunded',
-}
-
-// KYC status
-export const KYC_STATUS = {
-  UNVERIFIED: 'unverified',
-  PENDING: 'pending',
-  VERIFIED: 'verified',
-  REJECTED: 'rejected',
-}
-
 // MansLater loan config
 export const MANSLATER_CONFIG = {
   TENORS: [1, 3, 6, 9], // months
@@ -110,18 +66,6 @@ export const COLLATERAL_CATEGORIES = [
   { value: 'property_cert', label: 'Sertifikat Properti' },
   { value: 'other', label: 'Lainnya' },
 ]
-
-// Notification types
-export const NOTIFICATION_TYPES = {
-  APPROVAL: 'approval',
-  REJECTION: 'rejection',
-  PAYMENT_REMINDER: 'payment_reminder',
-  OVERDUE_WARNING: 'overdue_warning',
-  PICKUP_SCHEDULE: 'pickup_schedule',
-  REWARD_STATUS: 'reward_status',
-  REPAYMENT_CONFIRMATION: 'repayment_confirmation',
-  SYSTEM: 'system',
-}
 
 // Navigation items per role
 export const NAV_ITEMS = {

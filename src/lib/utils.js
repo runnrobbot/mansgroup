@@ -132,34 +132,6 @@ export function generateRefNumber(prefix = 'MG') {
   return `${prefix}${yy}${mm}${dd}-${rand}`
 }
 
-// Calculate credit score
-export function calculateCreditScore({ income, loanAmount, repaymentHistory, hasOverdue, loanCount }) {
-  let score = 500
-
-  // Income ratio
-  const ratio = loanAmount / (income || 1)
-  if (ratio < 0.3) score += 100
-  else if (ratio < 0.5) score += 50
-  else if (ratio > 1) score -= 100
-
-  // Repayment history
-  if (repaymentHistory === 'excellent') score += 150
-  else if (repaymentHistory === 'good') score += 80
-  else if (repaymentHistory === 'poor') score -= 150
-
-  if (hasOverdue) score -= 200
-  if (loanCount > 3) score += 30
-
-  score = Math.max(200, Math.min(900, score))
-
-  let category = 'poor'
-  if (score >= 750) category = 'excellent'
-  else if (score >= 650) category = 'good'
-  else if (score >= 550) category = 'fair'
-
-  return { score, category }
-}
-
 // Get initials from name
 export function getInitials(name = '') {
   return name
