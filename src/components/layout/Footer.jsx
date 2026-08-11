@@ -42,30 +42,6 @@ export function Footer() {
                 { label: 'MansGadai — Gadai Online', href: '/mansgadai' },
                 { label: 'Simulasi Pinjaman', href: '/#simulasi' },
                 { label: 'Simulasi Gadai', href: '/#gadai-simulasi' },
-                { label: 'Cara Pengajuan', href: '/#cara-kerja' },
-              ].map((item) => (
-                <li key={item.label}>
-                  <Link
-                    to={item.href}
-                    className="text-sm hover:text-emerald-400 transition-colors"
-                  >
-                    {item.label}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Perusahaan */}
-          <div>
-            <h4 className="text-sm font-700 text-white mb-4">Perusahaan</h4>
-            <ul className="space-y-2.5">
-              {[
-                { label: 'Tentang MansGroup', href: '/about' },
-                { label: 'Karir', href: '/karir' },
-                { label: 'Blog & Artikel', href: '/blog' },
-                { label: 'Syarat & Ketentuan', href: '/terms' },
-                { label: 'Kebijakan Privasi', href: '/privacy' },
               ].map((item) => (
                 <li key={item.label}>
                   <Link

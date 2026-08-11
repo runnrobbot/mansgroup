@@ -16,6 +16,7 @@ const PrivacyPage = lazy(() => import('./pages/legal/PrivacyPage'))
 const LoginPage = lazy(() => import('./pages/auth/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/auth/RegisterPage'))
 const ForgotPasswordPage = lazy(() => import('./pages/auth/ForgotPasswordPage'))
+const ConfirmEmailPage = lazy(() => import('./pages/auth/ConfirmEmailPage'))
 
 // User dashboard
 const UserDashboard = lazy(() => import('./pages/dashboard/UserDashboard'))
@@ -75,6 +76,7 @@ function AppRoutes() {
       <Route path="/auth/login" element={<PublicOnly><LoginPage /></PublicOnly>} />
       <Route path="/auth/register" element={<PublicOnly><RegisterPage /></PublicOnly>} />
       <Route path="/auth/forgot-password" element={<PublicOnly><ForgotPasswordPage /></PublicOnly>} />
+      <Route path="/auth/confirm" element={<ConfirmEmailPage />} />
       <Route path="/auth" element={<Navigate to="/auth/login" replace />} />
 
       {/* Smart redirect */}

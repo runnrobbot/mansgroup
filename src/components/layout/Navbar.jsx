@@ -14,7 +14,6 @@ const NAV_LINKS = [
   { label: 'Beranda', href: '/' },
   { label: 'MansLater', href: '/manslater' },
   { label: 'MansGadai', href: '/mansgadai' },
-  { label: 'Tentang', href: '/about' },
 ]
 
 export function Navbar() {

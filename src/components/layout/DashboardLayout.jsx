@@ -55,8 +55,7 @@ export function DashboardLayout({ children, role }) {
         </div>
         {(!collapsed || mobile) && (
           <div className="flex flex-col leading-none overflow-hidden">
-            <img src="/logo-samping.png" alt="MansGroup" className="h-5 w-auto" />
-            <span className="text-[9px] text-slate-400 font-500 tracking-widest uppercase">
+            <span className="text-[11px] text-slate-400 font-500 tracking-widest uppercase">
               {role === 'user' ? 'Portal User' : role === 'staff' ? 'Staff Panel' : role === 'admin' ? 'Admin Panel' : 'Founder Panel'}
             </span>
           </div>

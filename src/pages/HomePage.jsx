@@ -1,19 +1,10 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
-import { ArrowRight, Shield, Clock, TrendingUp, Lock, Award, ChevronDown, ArrowUpRight } from 'lucide-react'
+import { ArrowRight, ChevronDown } from 'lucide-react'
 import { Navbar } from '../components/layout/Navbar'
 import { Footer } from '../components/layout/Footer'
 import { LoanSimulator } from '../components/features/LoanSimulator'
 import { GadaiSimulator } from '../components/features/GadaiSimulator'
-
-const FEATURES = [
-  { icon: Clock, title: 'Proses Cepat', desc: 'Pengajuan online dalam hitungan menit, pencairan dalam 24 jam kerja.' },
-  { icon: Shield, title: 'Aman & Terpercaya', desc: 'Data terenkripsi end-to-end, diawasi OJK, dan perlindungan penuh.' },
-  { icon: TrendingUp, title: 'Bunga Transparan', desc: 'Tidak ada biaya tersembunyi. Semua biaya dihitung di awal dan ditunjukkan secara jelas.' },
-  { icon: Lock, title: 'Privasi Terjaga', desc: 'Keamanan data pribadi Anda adalah prioritas utama dengan Row Level Security.' },
-  { icon: Award, title: 'Tenor Fleksibel', desc: 'Pilih tenor 1, 3, 6, atau 9 bulan sesuai kemampuan cicilan Anda.' },
-  { icon: Shield, title: 'Reward Loyalitas', desc: 'Bayar tepat waktu, dapatkan bunga lebih rendah untuk pengajuan berikutnya.' },
-]
 
 const FAQS = [
   { q: 'Apa itu MansLater?', a: 'MansLater adalah layanan pinjaman online MansGroup. Ajukan hingga Rp 50 juta tanpa jaminan fisik, tenor 1–9 bulan, bunga mulai 5% per bulan.' },
@@ -58,11 +49,11 @@ export default function HomePage() {
 
             <h1 className="text-4xl sm:text-5xl font-900 text-slate-900 tracking-tight leading-[1.1] mb-5">
               Pinjaman & Gadai Online<br />
-              <span className="text-emerald-700">Tanpa Riba, Sesuai Syariah</span>
+              <span className="text-emerald-700">Cepat, Transparan, Terpercaya</span>
             </h1>
 
             <p className="text-base text-slate-500 leading-relaxed mb-8 max-w-lg mx-auto">
-              MansGroup menghadirkan layanan keuangan digital yang transparan, cepat, dan sesuai prinsip ekonomi Islam. Tersedia MansLater untuk pinjaman dan MansGadai untuk gadai barang.
+              MansGroup menghadirkan layanan keuangan digital untuk pinjaman dan gadai. Proses cepat, bunga transparan, dan pencairan dalam 24 jam kerja.
             </p>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
@@ -212,28 +203,6 @@ export default function HomePage() {
             <h2 className="text-2xl font-800 text-slate-900 tracking-tight">Hitung Nilai Gadai</h2>
           </div>
           <GadaiSimulator />
-        </div>
-      </section>
-
-      {/* Features */}
-      <section className="py-16" id="keunggulan">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center mb-10">
-            <p className="text-xs font-700 text-emerald-700 uppercase tracking-widest mb-2">Keunggulan</p>
-            <h2 className="text-2xl font-800 text-slate-900 tracking-tight">Mengapa MansGroup?</h2>
-          </div>
-
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
-            {FEATURES.map(({ icon: Icon, title, desc }) => (
-              <div key={title} className="bg-white rounded-xl p-6 border border-slate-200">
-                <div className="w-9 h-9 rounded-lg bg-slate-100 flex items-center justify-center mb-4">
-                  <Icon size={17} className="text-emerald-700" />
-                </div>
-                <h3 className="text-sm font-700 text-slate-900 mb-1.5">{title}</h3>
-                <p className="text-sm text-slate-500 leading-relaxed">{desc}</p>
-              </div>
-            ))}
-          </div>
         </div>
       </section>
 
