@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom'
-import { Mail, Phone, MapPin, Building2, Lock, ShieldCheck, Instagram } from 'lucide-react'
+import { Mail, Phone, MapPin, Building2, Lock, ShieldCheck } from 'lucide-react'
 
 export function Footer() {
   const year = new Date().getFullYear()
@@ -22,8 +22,13 @@ export function Footer() {
                 target="_blank"
                 rel="noopener noreferrer"
                 className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-pink-600 flex items-center justify-center transition-colors"
+                aria-label="Instagram"
               >
-                <Instagram size={14} />
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <rect x="2" y="2" width="20" height="20" rx="5" ry="5"/>
+                  <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/>
+                  <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/>
+                </svg>
               </a>
             </div>
           </div>
