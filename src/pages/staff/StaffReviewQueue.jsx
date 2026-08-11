@@ -7,24 +7,10 @@ import { Modal, ModalBody, ModalFooter } from '../../components/ui/Modal'
 import { useConfirm } from '../../components/ui/ConfirmModal'
 import { Table, TableHead, Th, TableBody, Tr, Td, EmptyRow } from '../../components/ui/Table'
 import { loanService, gadaiService, kycService } from '../../services'
-import { formatIDR, formatDate, calculateCreditScore } from '../../lib/utils'
+import { formatIDR, formatDate } from '../../lib/utils'
 import { Eye, CheckCircle, XCircle, ClipboardList, ShieldCheck, Package, ExternalLink, AlertTriangle } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
 import toast from 'react-hot-toast'
-
-function CreditBadge({ score, category }) {
-  const map = {
-    excellent: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-    good:      'bg-blue-50 text-blue-700 border-blue-200',
-    fair:      'bg-amber-50 text-amber-700 border-amber-200',
-    poor:      'bg-red-50 text-red-700 border-red-200',
-  }
-  return (
-    <span className={`inline-flex items-center gap-1 text-xs font-600 px-2 py-1 rounded-lg border ${map[category] || map.poor}`}>
-      {score} · {category}
-    </span>
-  )
-}
 
 export default function StaffReviewQueue() {
   const { profile } = useAuth()
@@ -268,16 +254,6 @@ export default function StaffReviewQueue() {
                         <span className="text-xs font-mono text-slate-400">{selected.ref_number}</span>
                       </div>
                     </div>
-                    {(isLoan || isGadai) && (() => {
-                      const { score, category } = calculateCreditScore?.({
-                        income: selected.income,
-                        loanAmount: selected.amount || selected.loan_amount,
-                        repaymentHistory: selected.repayment_history,
-                        hasOverdue: selected.has_overdue,
-                        loanCount: selected.loan_count,
-                      }) || { score: 0, category: 'poor' }
-                      return <CreditBadge score={score} category={category} />
-                    })()}
                   </div>
                 </div>
 
