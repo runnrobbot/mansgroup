@@ -54,8 +54,7 @@ export default function FounderDashboard() {
   const totalLoans = data.loans.length
   const nplRate = totalLoans ? ((overdueLoans / totalLoans) * 100).toFixed(1) : 0
   const totalUsers = data.users.filter(u => u.role === 'user').length
-  // Status pembayaran yang dianggap "sukses": Midtrans pakai 'settlement'/'capture',
-  // manual transfer pakai 'confirmed'.
+  // Status pembayaran yang dianggap "sukses": settlement/capture (online) atau confirmed (manual transfer).
   const totalRevenue = data.payments
     .filter(p => ['settlement', 'capture', 'confirmed'].includes(p.status))
     .reduce((s, p) => s + (p.amount || 0), 0)

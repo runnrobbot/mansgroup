@@ -14,8 +14,7 @@ import { format, subMonths } from 'date-fns'
 const stagger = { visible: { transition: { staggerChildren: 0.07 } } }
 const fadeUp = { hidden: { opacity: 0, y: 12 }, visible: { opacity: 1, y: 0, transition: { duration: 0.3 } } }
 
-// Status pembayaran yang dianggap "sukses": Midtrans pakai 'settlement'/'capture',
-// manual transfer pakai 'confirmed'. Semuanya harus dihitung sebagai revenue.
+// Status pembayaran yang dianggap "sukses": settlement/capture (online) atau confirmed (manual transfer).
 const CONFIRMED_PAYMENT_STATUSES = ['settlement', 'capture', 'confirmed']
 
 function buildRevenue(loans, gadais, payments) {

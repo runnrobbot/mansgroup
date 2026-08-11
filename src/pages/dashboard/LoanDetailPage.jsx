@@ -3,19 +3,16 @@ import { useParams, Link } from 'react-router-dom'
 import { DashboardLayout } from '../../components/layout/DashboardLayout'
 import { Card } from '../../components/ui/Card'
 import { StatusBadge } from '../../components/ui/Badge'
-import { Button } from '../../components/ui/Button'
-import { loanService, paymentService, midtransService } from '../../services'
+import { loanService, paymentService } from '../../services'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
-import { recomputeLoanState } from '../../lib/paymentSync'
 import { useDebouncedReload } from '../../lib/useDebouncedReload'
-import { formatIDR, formatDate, formatDateTime, getEffectiveAmount, isRevised, getEffectiveLoanNumbers, generateRefNumber } from '../../lib/utils'
+import { formatIDR, formatDate, formatDateTime, getEffectiveAmount, isRevised, getEffectiveLoanNumbers } from '../../lib/utils'
 import {
-  ArrowLeft, AlertCircle, CheckCircle, Clock, Banknote, CreditCard,
+  ArrowLeft, AlertCircle, CheckCircle, Clock, Banknote,
   Calendar, TrendingUp, FileText, Building2, User, Shield,
-  ChevronRight, AlertTriangle, Info
+  ChevronRight, AlertTriangle,
 } from 'lucide-react'
-import toast from 'react-hot-toast'
 
 function InfoGrid({ items }) {
   return (
@@ -56,11 +53,8 @@ export default function LoanDetailPage() {
   const [payments, setPayments] = useState([])
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState(null)
-  const [payOpen, setPayOpen] = useState(false)
-  const [payAmount, setPayAmount] = useState('')
-  const [paying, setPaying] = useState(false)
 
-  // Guard untuk setState setelah unmount (mencegah race onSuccess panggil load setelah modal ditutup & component unmount)
+  // Guard untuk setState setelah unmount
   const mountedRef = useRef(true)
   useEffect(() => {
     mountedRef.current = true
@@ -119,111 +113,6 @@ export default function LoanDetailPage() {
     .reduce((s, p) => s + (Number(p.amount) || 0), 0)
   const remaining = Math.max(0, eff.totalRepayment - totalPaid)
   const progress = eff.totalRepayment ? Math.min(100, Math.round((totalPaid / eff.totalRepayment) * 100)) : 0
-
-  const handlePay = async () => {
-    const amt = Number(payAmount)
-    if (!amt || amt <= 0) { toast.error('Masukkan nominal pembayaran yang valid'); return }
-    if (amt > remaining) { toast.error('Nominal melebihi sisa tagihan'); return }
-    setPaying(true)
-
-    try {
-      // 1. Buat record payment di DB (status: pending)
-      const orderId = `PAY-${generateRefNumber()}`
-      const { data: payment, error: createErr } = await paymentService.create({
-        user_id: profile.id,
-        loan_id: id,
-        amount: amt,
-        payment_type: 'repayment',
-        payment_method: 'midtrans',
-        midtrans_order_id: orderId,
-        status: 'pending',
-      })
-      if (createErr || !payment) {
-        throw new Error(createErr?.message || 'Gagal membuat order pembayaran')
-      }
-
-      // 2. Request Snap token
-      const { token, error: tokenErr } = await midtransService.createSnapToken({
-        orderId,
-        grossAmount: amt,
-        customerName: profile.full_name,
-        customerEmail: profile.email,
-        customerPhone: profile.phone,
-        paymentId: payment.id,
-        itemDetails: [{
-          id: loan.id,
-          price: amt,
-          quantity: 1,
-          name: `Cicilan ${loan.ref_number}`.slice(0, 50),
-        }],
-      })
-      if (tokenErr || !token) {
-        await paymentService.update(payment.id, {
-          status: 'failed',
-          notes: `Gagal mendapatkan token Midtrans: ${tokenErr?.message || 'unknown'}`,
-        })
-        throw new Error(
-          tokenErr?.message ||
-          'Layanan pembayaran sedang tidak tersedia. Coba lagi beberapa saat lagi.'
-        )
-      }
-
-      // 3. Load Snap & open popup
-      await midtransService.loadSnapScript()
-
-      window.snap.pay(token, {
-        onSuccess: async (result) => {
-          // Update payment record dulu, baru recompute loan state
-          await paymentService.update(payment.id, {
-            status: 'settlement',
-            midtrans_status: result.transaction_status,
-            midtrans_transaction_id: result.transaction_id,
-            midtrans_payment_type: result.payment_type,
-          })
-          // recomputeLoanState idempotent — bisa dipanggil paralel dengan webhook
-          await recomputeLoanState(id)
-          if (!mountedRef.current) return
-          toast.success('Pembayaran berhasil! Terima kasih.', { duration: 5000 })
-          setPayOpen(false)
-          setPayAmount('')
-          scheduleReload()
-        },
-        onPending: async (result) => {
-          await paymentService.update(payment.id, {
-            status: 'verification',
-            midtrans_status: result.transaction_status,
-            midtrans_transaction_id: result.transaction_id,
-            midtrans_payment_type: result.payment_type,
-          })
-          if (!mountedRef.current) return
-          toast('Pembayaran sedang diproses. Selesaikan sesuai instruksi yang diberikan.', { icon: '⏳', duration: 6000 })
-          setPayOpen(false)
-          setPayAmount('')
-          scheduleReload()
-        },
-        onError: async (result) => {
-          await paymentService.update(payment.id, {
-            status: 'failed',
-            midtrans_status: result?.status_message || 'error',
-          })
-          if (!mountedRef.current) return
-          toast.error('Pembayaran gagal. Silakan coba lagi.')
-          scheduleReload()
-        },
-        onClose: () => {
-          if (!mountedRef.current) return
-          toast('Pembayaran belum diselesaikan. Kamu bisa melanjutkan dari menu Pembayaran.', { icon: 'ℹ️' })
-          setPayOpen(false)
-          scheduleReload()
-        },
-      })
-    } catch (err) {
-      console.error('Payment error:', err)
-      if (mountedRef.current) toast.error(err.message || 'Terjadi kesalahan saat memproses pembayaran')
-    } finally {
-      if (mountedRef.current) setPaying(false)
-    }
-  }
 
   // ── Render states ─────────────────────────────────────────────────────────
   if (loading) return (
@@ -367,7 +256,7 @@ export default function LoanDetailPage() {
           </Card>
         )}
 
-        {/* ── Active loan: progress + pay CTA ── */}
+        {/* ── Active loan: progress ── */}
         {isActive && (
           <Card className="border-emerald-100 bg-gradient-to-br from-emerald-50/50 to-white">
             <div className="flex items-center justify-between mb-3">
@@ -384,7 +273,7 @@ export default function LoanDetailPage() {
               <span>Sudah dibayar: <span className="font-700 text-emerald-700">{formatIDR(totalPaid)}</span></span>
               <span>{progress}% lunas</span>
             </div>
-            <div className="grid grid-cols-2 gap-3 mb-4">
+            <div className="grid grid-cols-2 gap-3">
               <div className="p-3 bg-white rounded-xl border border-slate-100">
                 <p className="text-xs text-slate-400">Sisa Tagihan</p>
                 <p className="font-800 text-red-600 text-lg mt-0.5">{formatIDR(remaining)}</p>
@@ -394,37 +283,6 @@ export default function LoanDetailPage() {
                 <p className="font-800 text-slate-900 text-lg mt-0.5">{formatIDR(eff.monthlyInstallment)}</p>
               </div>
             </div>
-            {!payOpen ? (
-              <Button
-                icon={CreditCard}
-                onClick={() => { setPayOpen(true); setPayAmount(String(Math.min(eff.monthlyInstallment, remaining) || '')) }}
-                className="w-full"
-                disabled={remaining <= 0}
-              >
-                {remaining <= 0 ? 'Sudah Lunas' : 'Bayar Cicilan Sekarang'}
-              </Button>
-            ) : (
-              <div className="space-y-3 p-4 bg-white rounded-xl border border-slate-100">
-                <p className="text-sm font-700 text-slate-900">Pembayaran via Midtrans</p>
-                <div>
-                  <label className="label-field">Jumlah Pembayaran (Rp)</label>
-                  <input type="number" className="input-field" value={payAmount}
-                    onChange={e => setPayAmount(e.target.value)}
-                    placeholder="Nominal pembayaran" min={1} max={remaining} />
-                  <p className="text-xs text-slate-400 mt-1">Sisa tagihan: {formatIDR(remaining)}</p>
-                </div>
-                <div className="flex items-center gap-2 p-2.5 bg-blue-50 rounded-lg">
-                  <Info size={13} className="text-blue-500 flex-shrink-0" />
-                  <p className="text-xs text-blue-700">Mendukung Transfer Bank, QRIS, Virtual Account melalui Midtrans</p>
-                </div>
-                <div className="flex gap-2">
-                  <Button variant="secondary" onClick={() => setPayOpen(false)} className="flex-1" disabled={paying}>Batal</Button>
-                  <Button icon={CreditCard} loading={paying} onClick={handlePay} className="flex-1">
-                    {paying ? 'Memproses...' : 'Bayar Sekarang'}
-                  </Button>
-                </div>
-              </div>
-            )}
           </Card>
         )}
 
