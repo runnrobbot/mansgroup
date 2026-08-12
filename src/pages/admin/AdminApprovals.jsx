@@ -44,29 +44,33 @@ export default function AdminApprovals() {
   const isLoan = tab === 'loans'
 
   const loadCounts = async () => {
-    const [lr, la, gr, ga] = await Promise.all([
+    const [lr, la, gr, ga, grc] = await Promise.all([
       loanService.listAll({ status: 'review', limit: 1 }),
       loanService.listAll({ status: 'approved', limit: 1 }),
       gadaiService.listAll({ status: 'review', limit: 1 }),
       gadaiService.listAll({ status: 'approved', limit: 1 }),
+      gadaiService.listAll({ status: 'received', limit: 1 }),
     ])
     setCounts({
       loans: (lr.count || 0) + (la.count || 0),
-      gadai: (gr.count || 0) + (ga.count || 0),
+      gadai: (gr.count || 0) + (ga.count || 0) + (grc.count || 0),
     })
   }
 
   const load = async () => {
     setLoading(true)
     const svc = isLoan ? loanService : gadaiService
-    // Fetch both review (pending approval) and approved (pending disbursement)
-    const [reviewRes, approvedRes] = await Promise.all([
+    // Loans: review + approved (pending disbursement)
+    // Gadai: review + approved + received (received = item sudah di warehouse, siap dicairkan)
+    const [reviewRes, approvedRes, receivedRes] = await Promise.all([
       svc.listAll({ status: 'review', limit: 50 }),
       svc.listAll({ status: 'approved', limit: 50 }),
+      !isLoan ? svc.listAll({ status: 'received', limit: 50 }) : Promise.resolve({ data: [] }),
     ])
     const combined = [
       ...(reviewRes.data || []),
       ...(approvedRes.data || []),
+      ...(receivedRes.data || []),
     ].sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
     setItems(combined)
     setLoading(false)
@@ -263,9 +267,9 @@ export default function AdminApprovals() {
 
     const svc = isLoan ? loanService : gadaiService
 
-    // For gadai: status → waiting_pickup (barang dijemput dulu setelah dana cair)
+    // For gadai: status → disbursed (barang sudah diterima warehouse di langkah sebelumnya)
     // For loans: status → disbursed
-    const newStatus = isLoan ? 'disbursed' : 'waiting_pickup'
+    const newStatus = 'disbursed'
 
     const disburseUpdate = {
       status: newStatus,
@@ -304,7 +308,7 @@ export default function AdminApprovals() {
     if (!error && selected.user_id) {
       const msg = isLoan
         ? `Dana sebesar ${formatIDR(amt)} telah ditransfer ke rekening ${selected.bank_code} ${selected.account_number} Anda. Ref: ${disburseRef.trim()}`
-        : `Dana sebesar ${formatIDR(amt)} telah ditransfer ke rekening Anda. Tim kami akan segera menjemput barang gadai Anda. Ref: ${disburseRef.trim()}`
+        : `Dana sebesar ${formatIDR(amt)} telah ditransfer ke rekening Anda untuk gadai ${selected.ref_number}. Barang Anda sudah aman di warehouse kami. Ref: ${disburseRef.trim()}`
 
       await notificationService.send({
         userId: selected.user_id,
@@ -316,7 +320,7 @@ export default function AdminApprovals() {
 
     setActionLoading(false)
     if (!error) {
-      toast.success(isLoan ? 'Dana berhasil dicairkan' : 'Dana dicairkan — status beralih ke Menunggu Penjemputan')
+      toast.success('Dana berhasil dicairkan!')
       setDisburseOpen(false)
       setSelected(null)
       load(); loadCounts()
@@ -537,7 +541,15 @@ export default function AdminApprovals() {
                 {selected.status === 'review' && (
                   <Button icon={CheckCircle} loading={actionLoading} onClick={handleApprove}>Setujui</Button>
                 )}
-                {selected.status === 'approved' && (
+                {/* Gadai: only show Cairkan after item received at warehouse (pickup must happen first) */}
+                {!isLoan && selected.status === 'received' && (
+                  <Button icon={Banknote} loading={actionLoading} onClick={openDisburse}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white">
+                    Cairkan Dana Sekarang
+                  </Button>
+                )}
+                {/* Loans: disburse after approved (no pickup needed) */}
+                {isLoan && selected.status === 'approved' && (
                   <Button icon={Banknote} loading={actionLoading} onClick={openDisburse}
                     className="bg-emerald-600 hover:bg-emerald-700 text-white">
                     Cairkan Dana
@@ -630,8 +642,7 @@ export default function AdminApprovals() {
 
                 <div className="mt-4 p-3 bg-amber-50 rounded-xl border border-amber-200">
                   <p className="text-xs text-amber-700 font-600">
-                    ⚠ Pastikan transfer bank sudah berhasil dilakukan sebelum mengkonfirmasi. Tindakan ini tidak dapat dibatalkan dan akan langsung memberi tahu nasabah.
-                    {!isLoan && ' Status gadai akan berubah menjadi "Menunggu Penjemputan".'}
+                    Pastikan transfer bank sudah berhasil dilakukan sebelum mengkonfirmasi. Tindakan ini tidak dapat dibatalkan dan akan langsung memberitahu nasab.
                   </p>
                 </div>
               </ModalBody>

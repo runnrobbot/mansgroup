@@ -6,6 +6,7 @@ import { Modal, ModalBody, ModalFooter } from '../../components/ui/Modal'
 import { useConfirm } from '../../components/ui/ConfirmModal'
 import { Table, TableHead, Th, TableBody, Tr, Td, EmptyRow } from '../../components/ui/Table'
 import { warehouseService } from '../../services'
+import { supabase } from '../../lib/supabase'
 import { formatDate, formatIDR, generateRefNumber } from '../../lib/utils'
 import { Warehouse, Plus, Eye, Edit, Package, Tag, DollarSign } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -52,6 +53,22 @@ export default function StaffWarehouse() {
   }
 
   useEffect(() => { load() }, [filterCategory])
+
+  // Realtime: auto-refresh when new collateral item is added (from StaffGadaiPickup)
+  useEffect(() => {
+    const channel = supabase
+      .channel('warehouse-items')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'collateral_items',
+      }, () => {
+        toast.success('Item baru masuk warehouse!')
+        load()
+      })
+      .subscribe()
+    return () => supabase.removeChannel(channel)
+  }, [])
 
   const setField = (key, val) => setForm(f => ({ ...f, [key]: val }))
 

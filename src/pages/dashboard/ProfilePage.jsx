@@ -490,7 +490,7 @@ export default function ProfilePage() {
               {/* Rekening Bank */}
               <div className="pt-4 border-t border-slate-100">
                 <p className="text-sm font-700 text-slate-800 mb-4 flex items-center gap-2">
-                  <span>🏦</span> Informasi Rekening Bank
+                  Informasi Rekening Bank
                 </p>
                 <div className="space-y-4">
                   <div className="grid sm:grid-cols-2 gap-4">

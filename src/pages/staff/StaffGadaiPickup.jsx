@@ -6,7 +6,7 @@ import { Button } from '../../components/ui/Button'
 import { Modal, ModalBody, ModalFooter } from '../../components/ui/Modal'
 import { useConfirm } from '../../components/ui/ConfirmModal'
 import { Table, TableHead, Th, TableBody, Tr, Td, EmptyRow } from '../../components/ui/Table'
-import { gadaiService, warehouseService } from '../../services'
+import { gadaiService, warehouseService, notificationService } from '../../services'
 import { formatDate, formatDateTime, generateRefNumber } from '../../lib/utils'
 import { Truck, Eye, CheckCircle, Package, MapPin, Calendar, User, Clock } from 'lucide-react'
 import { useAuth } from '../../contexts/AuthContext'
@@ -88,6 +88,15 @@ export default function StaffGadaiPickup() {
         notes: statusNote,
       })
       toast.success('Barang diterima dan dicatat di warehouse!')
+      // Notify user that their item was received and funds are being processed
+      if (selected.user_id) {
+        await notificationService.send({
+          userId: selected.user_id,
+          type: 'status_update',
+          title: 'Barang Diterima di Warehouse',
+          message: `Barang gadai kamu (${selected.ref_number}) telah diterima dan tercatat di warehouse kami. Tim kami akan segera memproses pencairan dana ke rekening kamu.`,
+        })
+      }
       setDetailOpen(false)
       load()
     } else {

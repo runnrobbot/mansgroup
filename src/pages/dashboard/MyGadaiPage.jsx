@@ -24,7 +24,7 @@ const STATUS_INFO = {
   review: { label: 'Direview Staff', color: 'bg-blue-50 text-blue-700' },
   waiting_pickup: { label: 'Menunggu Penjemputan', color: 'bg-amber-50 text-amber-700' },
   picked_up: { label: 'Barang Dijemput', color: 'bg-violet-50 text-violet-700' },
-  received: { label: 'Diterima Warehouse', color: 'bg-blue-50 text-blue-700' },
+  received: { label: 'Menunggu Pencairan', color: 'bg-amber-50 text-amber-700' },
   active: { label: 'Aktif Digadai', color: 'bg-emerald-50 text-emerald-700' },
   due: { label: 'Jatuh Tempo', color: 'bg-amber-50 text-amber-700' },
   extended: { label: 'Diperpanjang', color: 'bg-teal-50 text-teal-700' },
@@ -415,6 +415,18 @@ export default function MyGadaiPage() {
                       </div>
                     ))}
                   </div>
+
+                  {selected.status === 'received' && (
+                    <div className="p-3 bg-amber-50 rounded-xl border border-amber-200">
+                      <div className="flex items-center gap-2 mb-1">
+                        <Package size={13} className="text-amber-600" />
+                        <p className="text-xs font-700 text-amber-700">Barang Diterima di Warehouse</p>
+                      </div>
+                      <p className="text-xs text-amber-700">
+                        Barang kamu sudah aman di warehouse kami. Dana akan segera dicairkan ke rekening tujuan kamu.
+                      </p>
+                    </div>
+                  )}
 
                   {selected.staff_notes && (
                     <div className="p-3 bg-blue-50 rounded-xl border border-blue-100">
