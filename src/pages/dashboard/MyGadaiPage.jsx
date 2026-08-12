@@ -258,12 +258,6 @@ export default function MyGadaiPage() {
     total: gadais.length,
   }
 
-  // ── Compute payment info for modal ────────────────────────────────────────
-  const payEff = payGadai ? getEffectiveGadaiNumbers(payGadai) : null
-  const payAmount = payEff
-    ? (payType === 'extension' ? payEff.extensionFee : payEff.totalRepayment)
-    : 0
-
   return (
     <DashboardLayout role="user">
       <div className="space-y-5">
