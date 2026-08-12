@@ -196,8 +196,8 @@ CREATE TABLE public.gadai_applications (
   pickup_schedule  TIMESTAMPTZ,
   status           TEXT DEFAULT 'pending'
                    CHECK (status IN ('pending','review','revision','approved','rejected',
-                                     'waiting_pickup','picked_up','received','active',
-                                     'due','extended','overdue','completed','forfeited')),
+                                     'waiting_pickup','picked_up','received','disbursed',
+                                     'active','due','extended','overdue','completed','forfeited')),
   staff_notes      TEXT,
   admin_notes      TEXT,
   revision_note    TEXT,
