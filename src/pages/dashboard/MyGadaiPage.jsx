@@ -4,6 +4,7 @@ import { DashboardLayout } from '../../components/layout/DashboardLayout'
 import { Card } from '../../components/ui/Card'
 import { Table, TableHead, Th, TableBody, Tr, Td, EmptyRow } from '../../components/ui/Table'
 import { Modal, ModalBody } from '../../components/ui/Modal'
+import { PaymentModal } from '../../components/ui/PaymentModal'
 import { useAuth } from '../../contexts/AuthContext'
 import { gadaiService } from '../../services'
 import { supabase } from '../../lib/supabase'
@@ -43,6 +44,10 @@ export default function MyGadaiPage() {
   // Detail modal
   const [selected, setSelected] = useState(null)
   const [detailOpen, setDetailOpen] = useState(false)
+
+  // Payment modal
+  const [payModalOpen, setPayModalOpen] = useState(false)
+  const [selectedPayAmount, setSelectedPayAmount] = useState(null)
 
   const mountedRef = useRef(true)
   useEffect(() => {
@@ -363,6 +368,7 @@ export default function MyGadaiPage() {
         <Modal isOpen={detailOpen} onClose={() => setDetailOpen(false)} title="Detail Gadai" size="md">
           {selected && (() => {
             const eff = getEffectiveGadaiNumbers(selected)
+            const payAmount = selectedPayAmount || eff.totalRepayment
             return (
               <ModalBody>
                 <div className="space-y-4">
@@ -422,11 +428,38 @@ export default function MyGadaiPage() {
                       <p className="text-xs text-blue-600 mt-0.5">{selected.staff_notes}</p>
                     </div>
                   )}
+
+                  {['active', 'due', 'extended', 'overdue'].includes(selected.status) && (
+                    <div className="flex flex-col gap-2 pt-2 border-t border-slate-100">
+                      <button
+                        onClick={() => { setSelectedPayAmount(eff.totalRepayment); setPayModalOpen(true); setDetailOpen(false) }}
+                        className="btn-primary w-full justify-center py-3 rounded-xl"
+                      >
+                        Lunasi Sekarang — {formatIDR(eff.totalRepayment)}
+                      </button>
+                      <button
+                        onClick={() => { setSelectedPayAmount(eff.extensionFee); setPayModalOpen(true); setDetailOpen(false) }}
+                        className="w-full justify-center py-3 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 font-700 text-sm border border-amber-200 transition-colors"
+                      >
+                        Perpanjang — {formatIDR(eff.extensionFee)}
+                      </button>
+                    </div>
+                  )}
                 </div>
               </ModalBody>
             )
           })()}
         </Modal>
+
+        <PaymentModal
+          open={payModalOpen}
+          onClose={() => setPayModalOpen(false)}
+          gadaiId={selected?.id}
+          userId={profile?.id}
+          amount={selectedPayAmount}
+          customerName={profile?.full_name || ''}
+          customerEmail={profile?.email || ''}
+        />
       </div>
     </DashboardLayout>
   )

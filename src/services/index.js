@@ -372,3 +372,6 @@ export const analyticsService = {
   },
 
 }
+
+// Re-export sakurupiah service
+export { createPayment, getPaymentChannels, checkPaymentStatus, checkBalance, getChannelLabel } from './sakurupiah'

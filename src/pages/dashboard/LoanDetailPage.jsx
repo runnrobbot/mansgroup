@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import { DashboardLayout } from '../../components/layout/DashboardLayout'
 import { Card } from '../../components/ui/Card'
 import { StatusBadge } from '../../components/ui/Badge'
+import { PaymentModal } from '../../components/ui/PaymentModal'
 import { loanService, paymentService } from '../../services'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../contexts/AuthContext'
@@ -13,6 +14,7 @@ import {
   Calendar, TrendingUp, FileText, Building2, User, Shield,
   ChevronRight, AlertTriangle,
 } from 'lucide-react'
+import toast from 'react-hot-toast'
 
 function InfoGrid({ items }) {
   return (
@@ -53,6 +55,8 @@ export default function LoanDetailPage() {
   const [payments, setPayments] = useState([])
   const [loading, setLoading] = useState(true)
   const [fetchError, setFetchError] = useState(null)
+  const [payModalOpen, setPayModalOpen] = useState(false)
+  const [selectedPayAmount, setSelectedPayAmount] = useState(null)
 
   // Guard untuk setState setelah unmount
   const mountedRef = useRef(true)
@@ -283,6 +287,14 @@ export default function LoanDetailPage() {
                 <p className="font-800 text-slate-900 text-lg mt-0.5">{formatIDR(eff.monthlyInstallment)}</p>
               </div>
             </div>
+            {remaining > 0 && (
+              <button
+                onClick={() => { setSelectedPayAmount(Math.min(eff.monthlyInstallment, remaining)); setPayModalOpen(true) }}
+                className="btn-primary w-full justify-center py-3 rounded-xl mt-4"
+              >
+                Bayar Cicilan Sekarang
+              </button>
+            )}
           </Card>
         )}
 
@@ -443,6 +455,16 @@ export default function LoanDetailPage() {
         )}
 
       </div>
+
+      <PaymentModal
+        open={payModalOpen}
+        onClose={() => setPayModalOpen(false)}
+        loanId={loan.id}
+        userId={profile?.id}
+        amount={selectedPayAmount}
+        customerName={profile?.full_name || ''}
+        customerEmail={profile?.email || ''}
+      />
     </DashboardLayout>
   )
 }

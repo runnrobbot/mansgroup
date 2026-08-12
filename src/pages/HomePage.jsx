@@ -60,9 +60,9 @@ export default function HomePage() {
               <Link to="/auth/register" className="btn-primary text-sm px-6 py-3 rounded-xl font-700">
                 Mulai Sekarang <ArrowRight size={16} />
               </Link>
-              <Link to="/#layanan" className="btn-secondary text-sm px-6 py-3 rounded-xl font-600">
+              <a href="#layanan" className="btn-secondary text-sm px-6 py-3 rounded-xl font-600">
                 Lihat Layanan
-              </Link>
+              </a>
             </div>
           </div>
 

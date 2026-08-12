@@ -258,11 +258,22 @@ CREATE TABLE public.payments (
   amount                  BIGINT NOT NULL,
   payment_type            TEXT DEFAULT 'repayment'
                           CHECK (payment_type IN ('repayment','extension','late_fee','refund','disbursement')),
-  payment_method          TEXT DEFAULT 'midtrans',
+  payment_method          TEXT DEFAULT 'sakurupiah',
+  -- Midtrans (legacy)
   midtrans_order_id       TEXT UNIQUE,
   midtrans_transaction_id TEXT,
   midtrans_status         TEXT,
   midtrans_payment_type   TEXT,
+  -- Sakurupiah
+  sakurupiah_trx_id       TEXT,
+  sakurupiah_ref          TEXT,
+  sakurupiah_method       TEXT,
+  sakurupiah_checkout_url TEXT,
+  sakurupiah_qr_string    TEXT,
+  sakurupiah_payment_no   TEXT,
+  sakurupiah_expired      TIMESTAMPTZ,
+  sakurupiah_status       TEXT,
+  -- Other
   transfer_ref            TEXT,
   proof_url               TEXT,
   notes                   TEXT,
