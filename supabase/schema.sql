@@ -37,6 +37,9 @@ CREATE TABLE public.profiles (
   birth_date      DATE,
   occupation      TEXT,
   income          BIGINT,
+  bank_code       TEXT,
+  account_number  TEXT,
+  account_name    TEXT,
   role            TEXT NOT NULL DEFAULT 'user'
                   CHECK (role IN ('user','staff','admin','founder')),
   kyc_status      TEXT NOT NULL DEFAULT 'unverified'

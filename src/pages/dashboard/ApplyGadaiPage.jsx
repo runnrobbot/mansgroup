@@ -7,17 +7,10 @@ import { Input, CustomSelect, Textarea, CurrencyInput } from '../../components/u
 import { Button } from '../../components/ui/Button'
 import { useAuth } from '../../contexts/AuthContext'
 import { gadaiService, documentService } from '../../services'
-import { BANKS, COLLATERAL_CATEGORIES, MANSGADAI_CONFIG } from '../../lib/constants'
+import { COLLATERAL_CATEGORIES, MANSGADAI_CONFIG } from '../../lib/constants'
 import { calculateGadaiSimulation, formatIDR, generateRefNumber } from '../../lib/utils'
 import { Upload, X, Image, CheckCircle, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
-
-const BANK_OPTIONS = BANKS.map(b => ({
-  value: b.code,
-  label: b.name,
-  sublabel: b.premium ? 'Fee 2.5%' : 'Fee 5%',
-  icon: b.premium ? '⭐' : '🏦',
-}))
 
 const CATEGORY_OPTIONS = COLLATERAL_CATEGORIES.map(c => ({
   value: c.value,
@@ -108,21 +101,21 @@ export default function ApplyGadaiPage() {
 
   const [itemPhotoFile, setItemPhotoFile] = useState(null) // raw File — uploaded only on submit
   const [loading, setLoading] = useState(false)
-  const [bankCode, setBankCode] = useState('BCA')
   const [category, setCategory] = useState('')
   const [loanAmount, setLoanAmount] = useState(MANSGADAI_CONFIG.MIN_AMOUNT)
 
-  const { register, handleSubmit, formState: { errors } } = useForm()
+  const { register, handleSubmit } = useForm()
 
   // ── Profile & KYC guard ───────────────────────────────────────────────
   useEffect(() => {
     if (profileLoading || profile === null) return
     const isProfileComplete = !!(
       profile.full_name && profile.nik && profile.phone &&
-      profile.birth_date && profile.address && profile.occupation && profile.income
+      profile.birth_date && profile.address && profile.occupation && profile.income &&
+      profile.bank_code && profile.account_number && profile.account_name
     )
     if (!isProfileComplete) {
-      toast.error('Lengkapi data profil sebelum mengajukan gadai')
+      toast.error('Lengkapi data profil terlebih dahulu')
       navigate('/dashboard/profile')
       return
     }
@@ -134,18 +127,23 @@ export default function ApplyGadaiPage() {
   }, [profile, profileLoading, navigate])
 
   // ── Derived state ─────────────────────────────────────────────────────
-  const sim = calculateGadaiSimulation(Number(loanAmount), bankCode)
+  const sim = calculateGadaiSimulation(Number(loanAmount), profile?.bank_code)
 
   const isProfileComplete = !!(
     profile?.full_name && profile?.nik && profile?.phone &&
-    profile?.birth_date && profile?.address && profile?.occupation && profile?.income
+    profile?.birth_date && profile?.address && profile?.occupation && profile?.income &&
+    profile?.bank_code && profile?.account_number && profile?.account_name
   )
   const canRender = !profileLoading && profile !== null && isProfileComplete && profile?.kyc_status === 'verified'
+
+  // Auto-fill from profile
+  const profileAddress = profile?.address || ''
+  const profileAccountNumber = profile?.account_number || ''
+  const profileAccountName = profile?.account_name || ''
 
   // ── Submit — upload photo first, then create record ───────────────────
   const onSubmit = async data => {
     if (!category) { toast.error('Pilih kategori barang'); return }
-    if (!bankCode)  { toast.error('Pilih bank tujuan'); return }
     if (!itemPhotoFile) { toast.error('Foto barang wajib diupload'); return }
 
     setLoading(true)
@@ -167,11 +165,11 @@ export default function ApplyGadaiPage() {
       item_name:        data.item_name,
       item_description: data.item_description,
       item_category:    category,
-      pickup_address:   data.pickup_address,
+      pickup_address:   data.pickup_address || profileAddress,
       pickup_schedule:  data.pickup_schedule,
-      account_number:   data.account_number,
-      account_name:     data.account_name,
-      bank_code:        bankCode,
+      account_number:   profileAccountNumber,
+      account_name:     profileAccountName,
+      bank_code:        profile?.bank_code,
       loan_amount:      loanAmount,
       interest:         sim.interest,
       platform_fee:     sim.platformFee,
@@ -268,7 +266,7 @@ export default function ApplyGadaiPage() {
         </Card>
 
         <Card>
-          <h2 className="text-sm font-700 text-slate-900 mb-5">Pinjaman & Rekening</h2>
+          <h2 className="text-sm font-700 text-slate-900 mb-5">Pinjaman</h2>
           <div className="space-y-4">
             <CurrencyInput
               label="Nilai Pinjaman yang Diinginkan" required
@@ -297,26 +295,12 @@ export default function ApplyGadaiPage() {
               </div>
             </div>
 
-            <div className="grid sm:grid-cols-2 gap-4">
-              <CustomSelect
-                label="Bank Tujuan" required
-                placeholder="Pilih bank"
-                options={BANK_OPTIONS}
-                value={bankCode}
-                onChange={setBankCode}
-                searchable
-              />
-              <Input
-                label="Nomor Rekening" placeholder="1234567890" required
-                {...register('account_number', { required: 'Wajib diisi' })}
-                error={errors.account_number?.message}
-              />
+            {/* Rekening dari profil */}
+            <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+              <p className="text-xs font-700 text-slate-600 mb-2">Rekening Tujuan Pencairan</p>
+              <p className="text-sm text-slate-800 font-600">{profile?.bank_code} — {profile?.account_name}</p>
+              <p className="text-xs text-slate-500 font-mono mt-0.5">{profile?.account_number}</p>
             </div>
-            <Input
-              label="Nama Pemilik Rekening" placeholder="Sesuai buku tabungan" required
-              {...register('account_name', { required: 'Wajib diisi' })}
-              error={errors.account_name?.message}
-            />
           </div>
         </Card>
 

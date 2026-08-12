@@ -6,6 +6,7 @@ import { Button } from '../../components/ui/Button'
 import { useAuth } from '../../contexts/AuthContext'
 import { supabase } from '../../lib/supabase'
 import { documentService } from '../../services'
+import { BANKS } from '../../lib/constants'
 import { getInitials } from '../../lib/utils'
 import { User, Lock, Shield, Mail, Eye, EyeOff, CheckCircle, Clock, XCircle, Upload, Camera, CreditCard, AlertCircle, ChevronRight } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -99,6 +100,9 @@ export default function ProfilePage() {
     birth_date: '',
     occupation: '',
     income: '',
+    bank_code: '',
+    account_number: '',
+    account_name: '',
   })
   const [savingProfile, setSavingProfile] = useState(false)
 
@@ -129,6 +133,9 @@ export default function ProfilePage() {
         birth_date: profile.birth_date || '',
         occupation: profile.occupation || '',
         income: profile.income ? String(profile.income) : '',
+        bank_code: profile.bank_code || '',
+        account_number: profile.account_number || '',
+        account_name: profile.account_name || '',
       })
     }
   }, [profile])
@@ -157,7 +164,7 @@ export default function ProfilePage() {
   const setField = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
   // KYC completion check
-  const profileComplete = form.full_name && form.nik && form.phone && form.birth_date && form.occupation
+  const profileComplete = form.full_name && form.nik && form.phone && form.birth_date && form.occupation && form.bank_code && form.account_number && form.account_name
   const kycPhotosComplete = (photos.ktp || photoUrls.ktp) && (photos.selfie_ktp || photoUrls.selfie_ktp)
   const fullyVerified = profile?.kyc_status === 'verified'
 
@@ -173,6 +180,9 @@ export default function ProfilePage() {
     if (!form.full_name.trim()) { toast.error('Nama lengkap wajib diisi'); return }
     if (!form.nik.trim()) { toast.error('NIK wajib diisi'); return }
     if (!form.phone.trim()) { toast.error('Nomor HP wajib diisi'); return }
+    if (!form.bank_code) { toast.error('Pilih bank tujuan'); return }
+    if (!form.account_number.trim()) { toast.error('Nomor rekening wajib diisi'); return }
+    if (!form.account_name.trim()) { toast.error('Nama pemilik rekening wajib diisi'); return }
     setSavingProfile(true)
     const { error } = await supabase.from('profiles').update({
       full_name: form.full_name,
@@ -183,6 +193,9 @@ export default function ProfilePage() {
       birth_date: form.birth_date || null,
       occupation: form.occupation,
       income: form.income ? Number(form.income) : null,
+      bank_code: form.bank_code,
+      account_number: form.account_number,
+      account_name: form.account_name,
       updated_at: new Date().toISOString(),
     }).eq('id', profile.id)
     setSavingProfile(false)
@@ -472,6 +485,39 @@ export default function ProfilePage() {
                   value={form.address}
                   onChange={e => setField('address', e.target.value)}
                 />
+              </div>
+
+              {/* Rekening Bank */}
+              <div className="pt-4 border-t border-slate-100">
+                <p className="text-sm font-700 text-slate-800 mb-4 flex items-center gap-2">
+                  <span>🏦</span> Informasi Rekening Bank
+                </p>
+                <div className="space-y-4">
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <CustomSelect
+                      label="Bank Tujuan" required
+                      placeholder="Pilih bank"
+                      options={BANKS.map(b => ({ value: b.code, label: b.name }))}
+                      value={form.bank_code}
+                      onChange={v => setField('bank_code', v)}
+                    />
+                    <Input
+                      label="Nomor Rekening" required
+                      placeholder="1234567890"
+                      value={form.account_number}
+                      onChange={e => setField('account_number', e.target.value.replace(/\D/g, ''))}
+                    />
+                  </div>
+                  <Input
+                    label="Nama Pemilik Rekening" required
+                    placeholder="Sesuai nama di buku tabungan"
+                    value={form.account_name}
+                    onChange={e => setField('account_name', e.target.value)}
+                  />
+                  <p className="text-xs text-slate-400">
+                    Data rekening digunakan untuk pencairan dana MansGadai &amp; MansLater.
+                  </p>
+                </div>
               </div>
             </div>
 

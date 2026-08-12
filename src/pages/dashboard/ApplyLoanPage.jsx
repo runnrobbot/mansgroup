@@ -12,15 +12,8 @@ import { useAuth } from '../../contexts/AuthContext'
 import { loanService } from '../../services'
 import { supabase } from '../../lib/supabase'
 import { calculateLoanSimulation, formatIDR, generateRefNumber } from '../../lib/utils'
-import { BANKS, MANSLATER_CONFIG } from '../../lib/constants'
+import { MANSLATER_CONFIG } from '../../lib/constants'
 import toast from 'react-hot-toast'
-
-const BANK_OPTIONS = BANKS.map(b => ({
-  value: b.code,
-  label: b.name,
-  sublabel: b.premium ? 'Fee 2.5%' : 'Fee 5%',
-  icon: b.premium ? '⭐' : '🏦',
-}))
 
 const TENOR_OPTIONS = [
   { value: 1, label: '1 Bulan', sublabel: 'Jatuh tempo 1 bulan' },
@@ -62,7 +55,6 @@ export default function ApplyLoanPage() {
   const [files, setFiles]       = useState({})
   const [loading, setLoading]   = useState(false)
   const [userType, setUserType] = useState('worker')
-  const [bankCode, setBankCode] = useState('BCA')
   const [tenor, setTenor]       = useState(3)
 
   const { register, handleSubmit, watch, setValue, formState: { errors }, trigger } = useForm({
@@ -76,8 +68,6 @@ export default function ApplyLoanPage() {
       occupation: '',
       income:     0,
       amount:     5000000,
-      account_number: '',
-      account_name:   '',
     }
   })
 
@@ -100,7 +90,8 @@ export default function ApplyLoanPage() {
     if (profileLoading || profile === null) return
     const complete = !!(
       profile.full_name && profile.nik && profile.phone &&
-      profile.birth_date && profile.address && profile.occupation && profile.income
+      profile.birth_date && profile.address && profile.occupation && profile.income &&
+      profile.bank_code && profile.account_number && profile.account_name
     )
     if (!complete) {
       toast.error('Lengkapi data profil sebelum mengajukan pinjaman')
@@ -115,12 +106,13 @@ export default function ApplyLoanPage() {
 
   // ── Derived values (safe — after all hooks) ───────────────────────────
   const amount  = watch('amount', 5000000)
-  const sim     = calculateLoanSimulation(Number(amount), Number(tenor), bankCode, profile?.reward_eligible)
+  const sim     = calculateLoanSimulation(Number(amount), Number(tenor), profile?.bank_code, profile?.reward_eligible)
   const profilePrefilled = !!(profile?.full_name && profile?.nik && profile?.phone)
 
   const isProfileComplete = !!(
     profile?.full_name && profile?.nik && profile?.phone &&
-    profile?.birth_date && profile?.address && profile?.occupation && profile?.income
+    profile?.birth_date && profile?.address && profile?.occupation && profile?.income &&
+    profile?.bank_code && profile?.account_number && profile?.account_name
   )
   const canRender = !profileLoading && profile !== null && isProfileComplete && profile?.kyc_status === 'verified'
 
@@ -128,10 +120,9 @@ export default function ApplyLoanPage() {
     const fields = {
       1: ['full_name', 'nik', 'birth_date', 'phone', 'emergency_name', 'emergency_phone', 'emergency_relation'],
       2: [],
-      3: ['amount', 'account_number', 'account_name'],
+      3: ['amount'],
     }
     if (step === 3) {
-      if (!bankCode) { toast.error('Pilih bank tujuan'); return }
       if (!tenor)    { toast.error('Pilih tenor pinjaman'); return }
     }
     const valid = await trigger(fields[step] || [])
@@ -164,9 +155,9 @@ export default function ApplyLoanPage() {
       net_disbursement:     sim.netDisbursement,
       total_repayment:      sim.totalRepayment,
       monthly_installment:  sim.monthlyInstallment,
-      bank_code:            bankCode,
-      account_number:       data.account_number,
-      account_name:         data.account_name,
+      bank_code:            profile?.bank_code,
+      account_number:       profile?.account_number,
+      account_name:         profile?.account_name,
       user_type:            userType,
       // personal data snapshot
       full_name:            data.full_name,
@@ -361,14 +352,13 @@ export default function ApplyLoanPage() {
                       min={MANSLATER_CONFIG.MIN_AMOUNT} max={MANSLATER_CONFIG.MAX_AMOUNT} />
                     <CustomSelect label="Tenor" required placeholder="Pilih tenor"
                       options={TENOR_OPTIONS} value={tenor} onChange={v => setTenor(Number(v))} searchable={false} />
-                    <div className="grid sm:grid-cols-2 gap-4">
-                      <CustomSelect label="Bank Tujuan" required placeholder="Pilih bank"
-                        options={BANK_OPTIONS} value={bankCode} onChange={v => setBankCode(v)} searchable />
-                      <Input label="Nomor Rekening" placeholder="1234567890" required
-                        {...register('account_number', { required: 'Wajib diisi' })} error={errors.account_number?.message} />
+
+                    {/* Rekening dari profil */}
+                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-200">
+                      <p className="text-xs font-700 text-slate-600 mb-2">Rekening Tujuan Pencairan</p>
+                      <p className="text-sm text-slate-800 font-600">{profile?.bank_code} — {profile?.account_name}</p>
+                      <p className="text-xs text-slate-500 font-mono mt-0.5">{profile?.account_number}</p>
                     </div>
-                    <Input label="Nama Pemilik Rekening" placeholder="Sesuai buku tabungan" required
-                      {...register('account_name', { required: 'Wajib diisi' })} error={errors.account_name?.message} />
                   </div>
                 </Card>
                 <Card className="bg-emerald-50/50 border-emerald-100">

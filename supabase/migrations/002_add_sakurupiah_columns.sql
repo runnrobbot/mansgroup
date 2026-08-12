@@ -1,5 +1,5 @@
 -- ============================================================
--- Migration: Fix storage policies & get_user_role
+-- Migration: Fix storage policies, get_user_role, profile bank fields
 -- Run in Supabase SQL Editor after schema.sql / storage_policies.sql
 -- ============================================================
 
@@ -77,3 +77,11 @@ ALTER TABLE public.payments
 
 CREATE INDEX IF NOT EXISTS idx_payments_sakurupiah_trx ON public.payments(sakurupiah_trx_id);
 CREATE INDEX IF NOT EXISTS idx_payments_sakurupiah_ref ON public.payments(sakurupiah_ref);
+
+-- ============================================================
+-- Profile bank fields (pull from profile, not re-enter)
+-- ============================================================
+ALTER TABLE public.profiles
+  ADD COLUMN IF NOT EXISTS bank_code      TEXT,
+  ADD COLUMN IF NOT EXISTS account_number TEXT,
+  ADD COLUMN IF NOT EXISTS account_name   TEXT;
