@@ -17,20 +17,21 @@ DROP POLICY IF EXISTS "public_read_avatars"    ON storage.objects;
 DROP POLICY IF EXISTS "auth_upload_avatars"    ON storage.objects;
 DROP POLICY IF EXISTS "auth_update_avatars"    ON storage.objects;
 
--- Documents bucket: user upload ke folder sendiri, staff/admin bisa baca semua
+-- Documents bucket: user uploads to kyc/{userId}/filename, staff/admin can read all
+-- Structure: kyc/{userId}/{doc_type}_{timestamp}.ext
 CREATE POLICY "auth_upload_documents" ON storage.objects
   FOR INSERT TO authenticated
   WITH CHECK (
     bucket_id = 'documents'
-    AND auth.uid()::text = (string_to_array(name, '/'))[1]
+    AND (string_to_array(name, '/'))[2] = auth.uid()::text
   );
 
--- Admin & founder dapat upload ke path manapun (untuk bukti pencairan, dll.)
+-- Admin & founder can upload to any path
 CREATE POLICY "admin_upload_documents" ON storage.objects
   FOR INSERT TO authenticated
   WITH CHECK (
     bucket_id = 'documents'
-    AND (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('admin','founder')
+    AND COALESCE((SELECT role FROM public.profiles WHERE id = auth.uid()), 'user') IN ('admin','founder')
   );
 
 CREATE POLICY "auth_read_documents" ON storage.objects
@@ -38,8 +39,8 @@ CREATE POLICY "auth_read_documents" ON storage.objects
   USING (
     bucket_id = 'documents'
     AND (
-      auth.uid()::text = (string_to_array(name, '/'))[1]
-      OR (SELECT role FROM public.profiles WHERE id = auth.uid()) IN ('staff','admin','founder')
+      (string_to_array(name, '/'))[2] = auth.uid()::text
+      OR COALESCE((SELECT role FROM public.profiles WHERE id = auth.uid()), 'user') IN ('staff','admin','founder')
     )
   );
 
@@ -47,14 +48,14 @@ CREATE POLICY "auth_update_documents" ON storage.objects
   FOR UPDATE TO authenticated
   USING (
     bucket_id = 'documents'
-    AND auth.uid()::text = (string_to_array(name, '/'))[1]
+    AND (string_to_array(name, '/'))[2] = auth.uid()::text
   );
 
 CREATE POLICY "auth_delete_documents" ON storage.objects
   FOR DELETE TO authenticated
   USING (
     bucket_id = 'documents'
-    AND auth.uid()::text = (string_to_array(name, '/'))[1]
+    AND (string_to_array(name, '/'))[2] = auth.uid()::text
   );
 
 -- Avatars bucket: semua bisa baca, authenticated bisa upload ke folder sendiri

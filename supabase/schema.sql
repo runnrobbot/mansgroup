@@ -381,7 +381,7 @@ ALTER TABLE public.loan_schedules    ENABLE ROW LEVEL SECURITY;
 -- Helper function
 CREATE OR REPLACE FUNCTION public.get_user_role()
 RETURNS TEXT LANGUAGE sql STABLE SECURITY DEFINER AS $$
-  SELECT role FROM public.profiles WHERE id = auth.uid()
+  SELECT COALESCE(role, 'user') FROM public.profiles WHERE id = auth.uid()
 $$;
 
 -- PROFILES
