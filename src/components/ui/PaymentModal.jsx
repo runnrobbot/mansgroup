@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Modal, ModalBody, ModalHeader } from '../../components/ui/Modal'
+import { Modal, ModalBody } from '../../components/ui/Modal'
 import { getPaymentChannels, createPayment, getChannelLabel, formatAmount } from '../../services/sakurupiah'
 import { supabase } from '../../lib/supabase'
 import toast from 'react-hot-toast'
 import { generateRefNumber } from '../../lib/utils'
+import { X } from 'lucide-react'
 
 // QRIS is cheapest, show first
 const PREFERRED_CHANNELS = ['QRIS', 'QRISC', 'BCAVA', 'BRIVA', 'BNIVA', 'MANDIRIVA']
@@ -156,13 +157,19 @@ export function PaymentModal({
   const selectedChannelData = channels.find(c => c.kode === selectedChannel)
 
   return (
-    <Modal open={open} onClose={handleClose} size="md">
-      <ModalHeader onClose={handleClose}>
+    <Modal isOpen={open} onClose={handleClose} size="md">
+      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
         <div>
           <h3 className="text-base font-700 text-slate-900">Metode Pembayaran</h3>
           <p className="text-xs text-slate-500 mt-0.5">Total: <span className="font-700 text-emerald-700">{formatAmount(amount)}</span></p>
         </div>
-      </ModalHeader>
+        <button
+          onClick={handleClose}
+          className="w-7 h-7 rounded-lg hover:bg-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors"
+        >
+          <X size={15} />
+        </button>
+      </div>
       <ModalBody className="p-5">
         {/* Channel Selection */}
         {step === 'channel' && (
