@@ -1,7 +1,20 @@
 {
+  "functions": {
+    "api/**/*.js": {
+      "runtime": "nodejs18.x"
+    }
+  },
   "rewrites": [
     {
-      "source": "/((?!assets|favicon|robots).*)",
+      "source": "/api/sakurupiah/(.*)",
+      "destination": "/api/sakurupiah/$1"
+    },
+    {
+      "source": "/api/sakurupiah",
+      "destination": "/api/sakurupiah/index.js"
+    },
+    {
+      "source": "/((?!assets|favicon|robots|api).*)",
       "destination": "/index.html"
     }
   ],

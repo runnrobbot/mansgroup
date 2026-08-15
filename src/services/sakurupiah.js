@@ -1,15 +1,18 @@
 // Sakurupiah Frontend Service
-// Calls our Supabase Edge Function which proxies to Sakurupiah API
+// Calls our Vercel API route which proxies to Sakurupiah API
 // API Key is NEVER sent to frontend
 
-import { supabase } from '../lib/supabase'
+const VERCEL_API = '/api/sakurupiah'
 
-// Call our Edge Function proxy
-async function callEdge(type, data = {}) {
-  const { data: result, error } = await supabase.functions.invoke('sakurupiah', {
-    body: { type, data },
+// Call our Vercel API route proxy
+async function callApi(type, data = {}) {
+  const res = await fetch(VERCEL_API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type, data }),
   })
-  if (error) throw new Error(error.message || 'Gagal terhubung ke server pembayaran')
+  const result = await res.json()
+  if (!res.ok) throw new Error(result.error || `Server error: ${res.status}`)
   if (result?.error) throw new Error(result.error)
   return result
 }
@@ -18,7 +21,7 @@ async function callEdge(type, data = {}) {
  * Get available payment channels from Sakurupiah
  */
 export async function getPaymentChannels() {
-  const result = await callEdge('list_channels')
+  const result = await callApi('list_channels')
   return result.data || []
 }
 
@@ -46,7 +49,7 @@ export async function createPayment({
   description,
   return_url,
 }) {
-  return callEdge('create_payment', {
+  return callApi('create_payment', {
     payment_id,
     merchant_ref,
     method,
@@ -54,7 +57,7 @@ export async function createPayment({
     phone,
     name,
     email,
-    fee_bearer: '1', // merchant bears fee
+    fee_bearer: '1',
     description,
     return_url,
   })
@@ -65,14 +68,14 @@ export async function createPayment({
  * @param {string} trx_id - Sakurupiah transaction ID
  */
 export async function checkPaymentStatus(trx_id) {
-  return callEdge('check_status', { trx_id })
+  return callApi('check_status', { trx_id })
 }
 
 /**
  * Check merchant balance
  */
 export async function checkBalance() {
-  return callEdge('check_balance')
+  return callApi('check_balance')
 }
 
 /**

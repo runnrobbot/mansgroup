@@ -253,8 +253,8 @@ export default function MyGadaiPage() {
   }
 
   const stats = {
-    active: gadais.filter(g => ['active', 'due', 'extended'].includes(g.status)).length,
-    pending: gadais.filter(g => ['pending', 'review', 'waiting_pickup', 'picked_up', 'received'].includes(g.status)).length,
+    active: gadais.filter(g => ['active', 'due', 'extended', 'overdue'].includes(g.status)).length,
+    pending: gadais.filter(g => ['pending', 'review', 'revision', 'approved', 'waiting_pickup', 'picked_up', 'received'].includes(g.status)).length,
     total: gadais.length,
   }
 
